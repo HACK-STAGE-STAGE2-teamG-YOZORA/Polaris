@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/ai/chat-turn-output.schema.json",
+  "title": "Self-analysis chat turn output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reply",
+    "evidenceCandidates",
+    "missingAreas",
+    "nextQuestionTarget",
+    "experienceReady"
+  ],
+  "properties": {
+    "reply": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "ユーザーへ表示する返答。一度に質問は一つだけ。"
+    },
+    "evidenceCandidates": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "statement",
+          "supportType",
+          "messageId",
+          "quote",
+          "interpretation"
+        ],
+        "properties": {
+          "category": { "$ref": "common.schema.json#/$defs/hypothesisCategory" },
+          "statement": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "supportType": { "$ref": "common.schema.json#/$defs/evidenceSupportType" },
+          "messageId": { "type": "string", "format": "uuid" },
+          "quote": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "interpretation": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      }
+    },
+    "missingAreas": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/hypothesisCategory" }
+    },
+    "nextQuestionTarget": {
+      "type": "string",
+      "enum": [
+        "CAN",
+        "WANT",
+        "ENERGY",
+        "CONTEXT",
+        "EXPERIENCE_DETAIL",
+        "CONTRADICTION",
+        "CONFIRMATION"
+      ]
+    },
+    "experienceReady": { "type": "boolean" }
+  }
+}
+

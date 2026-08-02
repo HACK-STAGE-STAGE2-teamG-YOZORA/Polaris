@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/ai/company-facts-output.schema.json",
+  "title": "Company facts extraction output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["facts", "unknownItems"],
+  "properties": {
+    "facts": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "fact", "evidenceQuote"],
+        "properties": {
+          "category": { "$ref": "common.schema.json#/$defs/companyFactCategory" },
+          "fact": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "evidenceQuote": { "type": "string", "minLength": 1, "maxLength": 3000 }
+        }
+      }
+    },
+    "unknownItems": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    }
+  }
+}
+

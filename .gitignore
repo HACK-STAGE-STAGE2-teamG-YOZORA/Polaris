@@ -1,0 +1,28 @@
+# Dependencies and Next.js output
+node_modules/
+.next/
+out/
+src/generated/prisma/
+
+# Local environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Local data and uploaded content
+data/
+*.db
+*.db-shm
+*.db-wal
+uploads/
+
+# Logs and coverage
+*.log
+coverage/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

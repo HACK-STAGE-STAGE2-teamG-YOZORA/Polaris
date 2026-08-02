@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/ai/common.schema.json",
+  "title": "Polaris AI common definitions",
+  "$defs": {
+    "hypothesisCategory": {
+      "type": "string",
+      "enum": ["CAN", "WANT", "ENERGY", "CONTEXT"]
+    },
+    "experienceType": {
+      "type": "string",
+      "enum": [
+        "ENGAGED",
+        "ACHIEVEMENT",
+        "CHALLENGE",
+        "DRAINING_SUCCESS",
+        "TEAM_CONFLICT",
+        "OTHER"
+      ]
+    },
+    "evidenceSupportType": {
+      "type": "string",
+      "enum": ["SUPPORT", "COUNTER", "UNKNOWN"]
+    },
+    "messageQuote": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messageId", "quote"],
+      "properties": {
+        "messageId": { "type": "string", "format": "uuid" },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "sourceEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceType", "sourceId", "quote"],
+      "properties": {
+        "sourceType": {
+          "type": "string",
+          "enum": ["EXPERIENCE", "COMPANY_FACT"]
+        },
+        "sourceId": { "type": "string", "format": "uuid" },
+        "quote": { "type": "string", "minLength": 1 }
+      }
+    },
+    "companyFactCategory": {
+      "type": "string",
+      "enum": [
+        "MISSION",
+        "BUSINESS",
+        "PRODUCT_OR_SERVICE",
+        "DESIRED_CANDIDATE",
+        "REQUIRED_SKILL",
+        "WORK_ENVIRONMENT",
+        "INTERNSHIP_DETAIL",
+        "ELIGIBILITY",
+        "DEADLINE",
+        "LOCATION",
+        "WORK_STYLE",
+        "OTHER"
+      ]
+    },
+    "claimType": {
+      "type": "string",
+      "enum": [
+        "PERSONAL_FACT",
+        "NUMBER",
+        "PERIOD",
+        "ROLE",
+        "RESULT",
+        "CAPABILITY",
+        "COMPANY_FACT",
+        "MOTIVATION",
+        "FUTURE_GOAL"
+      ]
+    },
+    "claimStatus": {
+      "type": "string",
+      "enum": [
+        "VERIFIED",
+        "PARTIALLY_VERIFIED",
+        "NEEDS_CONFIRMATION",
+        "CONTRADICTED"
+      ]
+    },
+    "esIssueCode": {
+      "type": "string",
+      "enum": [
+        "QUESTION_NOT_ANSWERED",
+        "UNSUPPORTED_PERSONAL_FACT",
+        "UNSUPPORTED_COMPANY_FACT",
+        "CONTRADICTION",
+        "ABSTRACT_EXPRESSION",
+        "REDUNDANT_EXPRESSION",
+        "CHARACTER_LIMIT_EXCEEDED",
+        "CHARACTER_LIMIT_UNDERUSED",
+        "VOICE_DEVIATION"
+      ]
+    }
+  }
+}
+
