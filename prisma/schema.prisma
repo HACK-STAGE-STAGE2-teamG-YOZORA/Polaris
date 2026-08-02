@@ -1,0 +1,539 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum AnalysisSessionStatus {
+  ACTIVE
+  READY_TO_FINALIZE
+  COMPLETED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum QuestionTarget {
+  CAN
+  WANT
+  ENERGY
+  CONTEXT
+  EXPERIENCE_DETAIL
+  CONTRADICTION
+  CONFIRMATION
+}
+
+enum ExperienceType {
+  ENGAGED
+  ACHIEVEMENT
+  CHALLENGE
+  DRAINING_SUCCESS
+  TEAM_CONFLICT
+  OTHER
+}
+
+enum ExperienceStatus {
+  DRAFT
+  CONFIRMED
+}
+
+enum HypothesisCategory {
+  CAN
+  WANT
+  ENERGY
+  CONTEXT
+}
+
+enum EvidenceSupportType {
+  SUPPORT
+  COUNTER
+  UNKNOWN
+}
+
+enum HypothesisStatus {
+  CONFIRMED_PATTERN
+  CURRENT_HYPOTHESIS
+  INSUFFICIENT_EVIDENCE
+}
+
+enum UserAssessment {
+  UNREVIEWED
+  MATCHES
+  PARTIALLY_MATCHES
+  DOES_NOT_MATCH
+  NEEDS_EXPLORATION
+}
+
+enum CompanyOrigin {
+  USER_REGISTERED
+  CURATED
+}
+
+enum SourceType {
+  URL
+  TEXT
+  PDF
+  DOCX
+  TXT
+}
+
+enum SourceTrustLevel {
+  OFFICIAL
+  USER_PROVIDED_UNVERIFIED
+}
+
+enum CompanyFactCategory {
+  MISSION
+  BUSINESS
+  PRODUCT_OR_SERVICE
+  DESIRED_CANDIDATE
+  REQUIRED_SKILL
+  WORK_ENVIRONMENT
+  INTERNSHIP_DETAIL
+  ELIGIBILITY
+  DEADLINE
+  LOCATION
+  WORK_STYLE
+  OTHER
+}
+
+enum EsDocumentStatus {
+  DRAFT
+  ANALYZED
+  REVISED
+  VERIFIED
+}
+
+enum ResultFreshness {
+  CURRENT
+  STALE
+}
+
+enum EsSourceKind {
+  ORIGINAL
+  REVISION
+}
+
+enum QuestionCoverage {
+  ANSWERED
+  PARTIALLY_ANSWERED
+  NOT_ANSWERED
+}
+
+enum ClaimType {
+  PERSONAL_FACT
+  NUMBER
+  PERIOD
+  ROLE
+  RESULT
+  CAPABILITY
+  COMPANY_FACT
+  MOTIVATION
+  FUTURE_GOAL
+}
+
+enum ClaimStatus {
+  VERIFIED
+  PARTIALLY_VERIFIED
+  NEEDS_CONFIRMATION
+  CONTRADICTED
+}
+
+enum SourceEvidenceType {
+  EXPERIENCE
+  COMPANY_FACT
+}
+
+enum RevisionDecision {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum RecommendationRunStatus {
+  QUEUED
+  FETCHING_SOURCES
+  ANALYZING
+  COMPLETED
+  PARTIALLY_COMPLETED
+  FAILED
+}
+
+enum RecommendationSlot {
+  PRIMARY
+  CHALLENGE
+  UNEXPECTED
+}
+
+model AnalysisSession {
+  id          String                @id @default(uuid())
+  title       String
+  status      AnalysisSessionStatus
+  focusAreas  Json                  @map("focus_areas_json")
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+  completedAt DateTime?             @map("completed_at")
+
+  messages    Message[]
+  experiences Experience[]
+  reports     CareerReport[]
+
+  @@map("analysis_sessions")
+}
+
+model Message {
+  id              String          @id @default(uuid())
+  sessionId       String          @map("session_id")
+  role            MessageRole
+  content         String
+  questionTarget  QuestionTarget? @map("question_target")
+  clientMessageId String?         @unique @map("client_message_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  session       AnalysisSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  quotes        ExperienceQuote[]
+  evidenceItems EvidenceItem[]
+
+  @@index([sessionId, createdAt])
+  @@map("messages")
+}
+
+model Experience {
+  id              String           @id @default(uuid())
+  sourceSessionId String?          @map("source_session_id")
+  type            ExperienceType
+  title           String
+  situation       String
+  goal            String?
+  role            String
+  options         Json             @map("options_json")
+  decision        String?
+  decisionReason  String?          @map("decision_reason")
+  actions         Json             @map("actions_json")
+  result          String?
+  positiveEmotion String?          @map("positive_emotion")
+  negativeEmotion String?          @map("negative_emotion")
+  energyChange    Int              @map("energy_change")
+  environment     Json             @map("environment_json")
+  status          ExperienceStatus
+  confirmedAt     DateTime?        @map("confirmed_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  sourceSession AnalysisSession?  @relation(fields: [sourceSessionId], references: [id], onDelete: SetNull)
+  quotes        ExperienceQuote[]
+  evidenceItems EvidenceItem[]
+
+  @@index([status])
+  @@map("experiences")
+}
+
+model ExperienceQuote {
+  id           String   @id @default(uuid())
+  experienceId String   @map("experience_id")
+  messageId    String   @map("message_id")
+  quote        String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  experience Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  message    Message    @relation(fields: [messageId], references: [id], onDelete: Restrict)
+
+  @@unique([experienceId, messageId, quote])
+  @@map("experience_quotes")
+}
+
+model EvidenceItem {
+  id             String              @id @default(uuid())
+  experienceId   String              @map("experience_id")
+  messageId      String?             @map("message_id")
+  category       HypothesisCategory
+  statement      String
+  supportType    EvidenceSupportType @map("support_type")
+  quote          String
+  interpretation String
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  experience      Experience           @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  message         Message?             @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  hypothesisLinks HypothesisEvidence[]
+
+  @@index([experienceId])
+  @@index([category])
+  @@map("evidence_items")
+}
+
+model CareerHypothesis {
+  id                 String             @id @default(uuid())
+  category           HypothesisCategory
+  aiStatement        String             @map("ai_statement")
+  displayStatement   String             @map("display_statement")
+  status             HypothesisStatus
+  enablingConditions Json               @map("enabling_conditions_json")
+  riskConditions     Json               @map("risk_conditions_json")
+  userAssessment     UserAssessment     @default(UNREVIEWED) @map("user_assessment")
+  userNote           String?            @map("user_note")
+  internalConfidence Float?             @map("internal_confidence")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  evidenceLinks HypothesisEvidence[]
+
+  @@index([category, status])
+  @@map("career_hypotheses")
+}
+
+model HypothesisEvidence {
+  hypothesisId String @map("hypothesis_id")
+  evidenceId   String @map("evidence_id")
+
+  hypothesis CareerHypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  evidence   EvidenceItem     @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+
+  @@id([hypothesisId, evidenceId])
+  @@map("hypothesis_evidence")
+}
+
+model CareerReport {
+  id                   String   @id @default(uuid())
+  sourceSessionId      String   @map("source_session_id")
+  summary              String
+  confirmedCan         Json     @map("confirmed_can_json")
+  currentHypotheses    Json     @map("current_hypotheses_json")
+  wants                Json     @map("wants_json")
+  energizingActivities Json     @map("energizing_activities_json")
+  drainingActivities   Json     @map("draining_activities_json")
+  enablingContexts     Json     @map("enabling_contexts_json")
+  riskContexts         Json     @map("risk_contexts_json")
+  mustConditions       Json     @map("must_conditions_json")
+  preferConditions     Json     @map("prefer_conditions_json")
+  avoidConditions      Json     @map("avoid_conditions_json")
+  verifyConditions     Json     @map("verify_conditions_json")
+  nextExperiments      Json     @map("next_experiments_json")
+  isStale              Boolean  @default(false) @map("is_stale")
+  generatedAt          DateTime @default(now()) @map("generated_at")
+
+  sourceSession      AnalysisSession     @relation(fields: [sourceSessionId], references: [id], onDelete: Restrict)
+  recommendationRuns RecommendationRun[]
+
+  @@index([generatedAt])
+  @@map("career_reports")
+}
+
+model Company {
+  id                     String        @id @default(uuid())
+  name                   String
+  targetRole             String?       @map("target_role")
+  origin                 CompanyOrigin @default(USER_REGISTERED)
+  officialUrl            String?       @map("official_url")
+  careerUrl              String?       @map("career_url")
+  recommendationEligible Boolean       @default(false) @map("recommendation_eligible")
+  note                   String?
+  createdAt              DateTime      @default(now()) @map("created_at")
+  updatedAt              DateTime      @updatedAt @map("updated_at")
+
+  sources         CompanySource[]
+  esDocuments     EsDocument[]
+  recommendations CompanyRecommendation[]
+
+  @@index([recommendationEligible])
+  @@map("companies")
+}
+
+model CompanySource {
+  id          String           @id @default(uuid())
+  companyId   String           @map("company_id")
+  type        SourceType
+  trustLevel  SourceTrustLevel @map("trust_level")
+  title       String
+  sourceUrl   String?          @map("source_url")
+  rawText     String           @map("raw_text")
+  contentHash String           @map("content_hash")
+  retrievedAt DateTime         @map("retrieved_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  facts   CompanyFact[]
+
+  @@index([companyId])
+  @@map("company_sources")
+}
+
+model CompanyFact {
+  id              String              @id @default(uuid())
+  companySourceId String              @map("company_source_id")
+  category        CompanyFactCategory
+  fact            String
+  evidenceQuote   String              @map("evidence_quote")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  source CompanySource @relation(fields: [companySourceId], references: [id], onDelete: Cascade)
+
+  @@index([companySourceId])
+  @@index([category])
+  @@map("company_facts")
+}
+
+model EsDocument {
+  id                    String           @id @default(uuid())
+  companyId             String           @map("company_id")
+  targetRole            String?          @map("target_role")
+  question              String
+  characterLimit        Int              @map("character_limit")
+  originalText          String           @map("original_text")
+  selectedExperienceIds Json             @map("selected_experience_ids_json")
+  emphasis              Json             @map("emphasis_json")
+  status                EsDocumentStatus @default(DRAFT)
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  analyses  EsAnalysis[]
+  revisions EsRevision[]
+
+  @@index([companyId])
+  @@map("es_documents")
+}
+
+model EsAnalysis {
+  id                   String           @id @default(uuid())
+  esDocumentId         String           @map("es_document_id")
+  revisionId           String?          @map("revision_id")
+  sourceKind           EsSourceKind     @map("source_kind")
+  freshness            ResultFreshness
+  characterCount       Int              @map("character_count")
+  withinCharacterLimit Boolean          @map("within_character_limit")
+  questionCoverage     QuestionCoverage @map("question_coverage")
+  issues               Json             @map("issues_json")
+  createdAt            DateTime         @default(now()) @map("created_at")
+
+  document             EsDocument   @relation(fields: [esDocumentId], references: [id], onDelete: Cascade)
+  revision             EsRevision?  @relation("AnalysisOfRevision", fields: [revisionId], references: [id], onDelete: SetNull)
+  claims               EsClaim[]
+  revisionsBasedOnThis EsRevision[] @relation("BasedOnAnalysis")
+  verifiesRevision     EsRevision?  @relation("VerificationAnalysis")
+
+  @@index([esDocumentId, createdAt])
+  @@map("es_analyses")
+}
+
+model EsClaim {
+  id           String      @id @default(uuid())
+  esAnalysisId String      @map("es_analysis_id")
+  sentence     String
+  claimText    String      @map("claim_text")
+  claimType    ClaimType   @map("claim_type")
+  status       ClaimStatus
+  explanation  String?
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  analysis EsAnalysis        @relation(fields: [esAnalysisId], references: [id], onDelete: Cascade)
+  evidence EsClaimEvidence[]
+
+  @@index([esAnalysisId])
+  @@map("es_claims")
+}
+
+model EsClaimEvidence {
+  id         String             @id @default(uuid())
+  esClaimId  String             @map("es_claim_id")
+  sourceType SourceEvidenceType @map("source_type")
+  sourceId   String             @map("source_id")
+  quote      String
+  createdAt  DateTime           @default(now()) @map("created_at")
+
+  claim EsClaim @relation(fields: [esClaimId], references: [id], onDelete: Cascade)
+
+  @@unique([esClaimId, sourceType, sourceId, quote])
+  @@map("es_claim_evidence")
+}
+
+model EsRevision {
+  id                     String          @id @default(uuid())
+  esDocumentId           String          @map("es_document_id")
+  basedOnAnalysisId      String          @map("based_on_analysis_id")
+  freshness              ResultFreshness
+  revisedText            String          @map("revised_text")
+  characterCount         Int             @map("character_count")
+  verificationAnalysisId String?         @unique @map("verification_analysis_id")
+  createdAt              DateTime        @default(now()) @map("created_at")
+
+  document             EsDocument       @relation(fields: [esDocumentId], references: [id], onDelete: Cascade)
+  basedOnAnalysis      EsAnalysis       @relation("BasedOnAnalysis", fields: [basedOnAnalysisId], references: [id], onDelete: Restrict)
+  verificationAnalysis EsAnalysis?      @relation("VerificationAnalysis", fields: [verificationAnalysisId], references: [id], onDelete: SetNull)
+  analysisRuns         EsAnalysis[]     @relation("AnalysisOfRevision")
+  changes              RevisionChange[]
+
+  @@index([esDocumentId, createdAt])
+  @@map("es_revisions")
+}
+
+model RevisionChange {
+  id           String           @id @default(uuid())
+  esRevisionId String           @map("es_revision_id")
+  beforeText   String           @map("before_text")
+  afterText    String           @map("after_text")
+  reason       String
+  evidence     Json             @map("evidence_json")
+  decision     RevisionDecision @default(PENDING)
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  revision EsRevision @relation(fields: [esRevisionId], references: [id], onDelete: Cascade)
+
+  @@index([esRevisionId])
+  @@map("revision_changes")
+}
+
+model RecommendationRun {
+  id                     String                  @id @default(uuid())
+  careerReportId         String                  @map("career_report_id")
+  status                 RecommendationRunStatus @default(QUEUED)
+  candidateCompanyIds    Json                    @map("candidate_company_ids_json")
+  targetRoles            Json                    @map("target_roles_json")
+  preferredLocations     Json                    @map("preferred_locations_json")
+  refreshOfficialSources Boolean                 @default(true) @map("refresh_official_sources")
+  progressTotal          Int                     @default(0) @map("progress_total")
+  progressFetched        Int                     @default(0) @map("progress_fetched")
+  progressAnalyzed       Int                     @default(0) @map("progress_analyzed")
+  progressFailed         Int                     @default(0) @map("progress_failed")
+  warnings               Json                    @map("warnings_json")
+  startedAt              DateTime?               @map("started_at")
+  completedAt            DateTime?               @map("completed_at")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+
+  recommendations CompanyRecommendation[]
+  careerReport    CareerReport            @relation(fields: [careerReportId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@map("recommendation_runs")
+}
+
+model CompanyRecommendation {
+  id                     String             @id @default(uuid())
+  recommendationRunId    String             @map("recommendation_run_id")
+  companyId              String             @map("company_id")
+  slot                   RecommendationSlot
+  rank                   Int
+  recommendedRole        String?            @map("recommended_role")
+  rationale              String
+  connectedExperienceIds Json               @map("connected_experience_ids_json")
+  matchingConditions     Json               @map("matching_conditions_json")
+  concerns               Json               @map("concerns_json")
+  unknowns               Json
+  verificationQuestions  Json               @map("verification_questions_json")
+  companySourceIds       Json               @map("company_source_ids_json")
+  generatedAt            DateTime           @default(now()) @map("generated_at")
+
+  run     RecommendationRun @relation(fields: [recommendationRunId], references: [id], onDelete: Cascade)
+  company Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([recommendationRunId, companyId])
+  @@index([recommendationRunId, rank])
+  @@map("company_recommendations")
+}

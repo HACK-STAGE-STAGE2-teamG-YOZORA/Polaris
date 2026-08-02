@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/ai/es-analysis-output.schema.json",
+  "title": "ES claims and issues analysis output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["questionCoverage", "claims", "issues"],
+  "properties": {
+    "questionCoverage": {
+      "type": "string",
+      "enum": ["ANSWERED", "PARTIALLY_ANSWERED", "NOT_ANSWERED"]
+    },
+    "claims": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sentence",
+          "text",
+          "type",
+          "suggestedStatus",
+          "evidence",
+          "explanation"
+        ],
+        "properties": {
+          "sentence": { "type": "string", "minLength": 1, "maxLength": 5000 },
+          "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "type": { "$ref": "common.schema.json#/$defs/claimType" },
+          "suggestedStatus": { "$ref": "common.schema.json#/$defs/claimStatus" },
+          "evidence": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/sourceEvidence" }
+          },
+          "explanation": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "message", "sentence"],
+        "properties": {
+          "code": { "$ref": "common.schema.json#/$defs/esIssueCode" },
+          "severity": { "type": "string", "enum": ["ERROR", "WARNING", "INFO"] },
+          "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "sentence": { "type": ["string", "null"], "maxLength": 5000 }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,2446 @@
+openapi: 3.1.0
+info:
+  title: Polaris API
+  version: 0.1.0
+  summary: 根拠付き自己分析とES推敲を行うローカルWebアプリのAPI契約
+  description: |
+    Polaris MVPのフロントエンドとバックエンド間の契約。
+
+    - 単一ユーザー・localhost運用を前提とし、認証は行わない。
+    - AIが生成した経験・仮説は、ユーザーが確認するまで確定情報として扱わない。
+    - ESの事実根拠には、確認済み経験と登録済み企業公式情報だけを使用する。
+    - APIの日時はISO 8601 UTC、IDはUUID、JSONはUTF-8とする。
+  contact:
+    name: Polaris development team
+  license:
+    name: UNLICENSED
+servers:
+  - url: http://localhost:3000
+    description: ローカル開発・デモ環境
+security: []
+tags:
+  - name: System
+    description: アプリ、DB、LM Studioの稼働状態
+  - name: Self Analysis
+    description: 自己分析セッション、チャット、仮説生成
+  - name: Experiences
+    description: ユーザーが確認する経験カード
+  - name: Hypotheses
+    description: CAN、WANT、ENERGY、CONTEXTのキャリア仮説
+  - name: Companies
+    description: 応募企業と根拠付き企業情報
+  - name: Recommendations
+    description: 登録済み候補企業の公式情報を取得して行う根拠付き提案
+  - name: ES
+    description: ES文書、検査、推敲、再検査
+
+paths:
+  /api/v1/system/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: アプリの稼働状態を取得する
+      responses:
+        '200':
+          description: 稼働状態。依存先の一部が停止していてもレスポンス自体は返す。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/system/lm-studio:
+    get:
+      tags: [System]
+      operationId: getLmStudioStatus
+      summary: LM Studioとの接続状態を取得する
+      responses:
+        '200':
+          description: 接続確認結果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LmStudioStatus'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/analysis-sessions:
+    post:
+      tags: [Self Analysis]
+      operationId: createAnalysisSession
+      summary: 自己分析セッションを開始する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAnalysisSessionRequest'
+      responses:
+        '201':
+          description: 作成したセッション
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisSession'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+
+  /api/v1/analysis-sessions/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Self Analysis]
+      operationId: getAnalysisSession
+      summary: 自己分析セッションを取得する
+      responses:
+        '200':
+          description: セッション
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisSession'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/analysis-sessions/{sessionId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Self Analysis]
+      operationId: listAnalysisMessages
+      summary: セッションの会話履歴を取得する
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: メッセージ一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Self Analysis]
+      operationId: sendAnalysisMessage
+      summary: ユーザーの回答を送り、AIの次の質問を取得する
+      description: |
+        AIは一度に一つの質問だけを返す。応答中に抽出した根拠候補は
+        `evidenceCandidates`として返すが、この時点では未確認情報である。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '200':
+          description: 1往復分の会話と抽出結果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatTurnResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/analysis-sessions/{sessionId}/experience-drafts:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Self Analysis]
+      operationId: createExperienceDraft
+      summary: 会話から経験カード案を作成する
+      description: 作成結果は必ず`DRAFT`であり、ユーザー確認後に`CONFIRMED`へ変更する。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExperienceDraftRequest'
+      responses:
+        '201':
+          description: 経験カード案
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experience'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/analysis-sessions/{sessionId}/hypotheses/generate:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Self Analysis]
+      operationId: generateCareerHypotheses
+      summary: 確認済み経験からキャリア仮説を生成または更新する
+      description: 未確認の経験は根拠として使用しない。同内容の仮説は新規作成せず更新する。
+      responses:
+        '200':
+          description: 生成・更新した仮説
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CareerHypothesis'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/analysis-sessions/{sessionId}/finalize:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Self Analysis]
+      operationId: finalizeAnalysisSession
+      summary: 自己分析を完了し、キャリア仮説レポートを作成する
+      description: 確認済みの経験とユーザーが確認・修正した仮説だけを確定部分へ使用する。
+      responses:
+        '200':
+          description: キャリア仮説レポート
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/experiences:
+    get:
+      tags: [Experiences]
+      operationId: listExperiences
+      summary: 経験カード一覧を取得する
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ExperienceStatus'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 経験カード一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperiencePage'
+    post:
+      tags: [Experiences]
+      operationId: createExperience
+      summary: フォーム入力から経験カードを作成する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExperienceRequest'
+      responses:
+        '201':
+          description: 作成した経験カード
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experience'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/experiences/{experienceId}:
+    parameters:
+      - $ref: '#/components/parameters/ExperienceId'
+    get:
+      tags: [Experiences]
+      operationId: getExperience
+      summary: 経験カードを取得する
+      responses:
+        '200':
+          description: 経験カード
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experience'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Experiences]
+      operationId: updateExperience
+      summary: 経験カードを修正または確認する
+      description: |
+        `status=CONFIRMED`へ変更する場合、`title`、`situation`、`role`、`actions`の
+        最低項目がそろっている必要がある。確認済みカードの内容を編集し、同じリクエストで
+        `status=CONFIRMED`を明示しない場合は自動的に`DRAFT`へ戻す。どちらの場合も、
+        関連する仮説とES検査結果を古い状態にする。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateExperienceRequest'
+      responses:
+        '200':
+          description: 更新した経験カード
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experience'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Experiences]
+      operationId: deleteExperience
+      summary: 経験カードを削除する
+      description: 関連する仮説・ES根拠を削除せず、古い状態として再計算を要求する。
+      responses:
+        '204':
+          description: 削除完了
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/hypotheses:
+    get:
+      tags: [Hypotheses]
+      operationId: listCareerHypotheses
+      summary: キャリア仮説一覧を取得する
+      parameters:
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/HypothesisCategory'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/HypothesisStatus'
+      responses:
+        '200':
+          description: 仮説一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CareerHypothesis'
+
+  /api/v1/hypotheses/{hypothesisId}:
+    parameters:
+      - $ref: '#/components/parameters/HypothesisId'
+    patch:
+      tags: [Hypotheses]
+      operationId: reviewCareerHypothesis
+      summary: 仮説に対する本人評価・修正文を保存する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewHypothesisRequest'
+      responses:
+        '200':
+          description: 更新した仮説
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerHypothesis'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/career-report:
+    get:
+      tags: [Self Analysis]
+      operationId: getCareerReport
+      summary: 最新のキャリア仮説レポートを取得する
+      responses:
+        '200':
+          description: 最新レポート
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/companies:
+    get:
+      tags: [Companies]
+      operationId: listCompanies
+      summary: 登録企業一覧を取得する
+      parameters:
+        - name: recommendationEligible
+          in: query
+          description: 指定時は企業提案の候補可否で絞り込む。
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: 企業一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CompanySummary'
+    post:
+      tags: [Companies]
+      operationId: createCompany
+      summary: 応募企業を作成する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCompanyRequest'
+      responses:
+        '201':
+          description: 作成した企業
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/companies/{companyId}:
+    parameters:
+      - $ref: '#/components/parameters/CompanyId'
+    get:
+      tags: [Companies]
+      operationId: getCompany
+      summary: 出典と事実を含む企業情報を取得する
+      responses:
+        '200':
+          description: 企業情報
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Companies]
+      operationId: updateCompany
+      summary: 企業名・応募職種・メモを更新する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCompanyRequest'
+      responses:
+        '200':
+          description: 更新した企業
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Companies]
+      operationId: deleteCompany
+      summary: 企業情報を削除する
+      responses:
+        '204':
+          description: 削除完了
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/companies/{companyId}/sources/text:
+    parameters:
+      - $ref: '#/components/parameters/CompanyId'
+    post:
+      tags: [Companies]
+      operationId: importCompanyText
+      summary: 貼り付けた企業公式情報を構造化して登録する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportCompanyTextRequest'
+      responses:
+        '201':
+          description: 作成した出典と抽出事実
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyImportResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/companies/{companyId}/sources/url:
+    parameters:
+      - $ref: '#/components/parameters/CompanyId'
+    post:
+      tags: [Companies]
+      operationId: importCompanyUrl
+      summary: URLから企業公式情報を取得・構造化して登録する
+      description: |
+        `http`/`https`のみ許可し、localhost、プライベートIP、リンクローカルIP、
+        メタデータサービス宛て通信、リダイレクト後の禁止宛先を拒否する。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportCompanyUrlRequest'
+      responses:
+        '201':
+          description: 作成した出典と抽出事実
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyImportResult'
+        '400':
+          $ref: '#/components/responses/UnsafeUrl'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/companies/{companyId}/sources/file:
+    parameters:
+      - $ref: '#/components/parameters/CompanyId'
+    post:
+      tags: [Companies]
+      operationId: importCompanyFile
+      summary: PDFまたはWordの企業公式資料を構造化して登録する
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, trustLevel]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 最大10MB。PDF、DOCX、TXTのみ。
+                sourceUrl:
+                  type: string
+                  format: uri
+                  description: 元資料の公開URL。分かる場合のみ指定する。
+                trustLevel:
+                  $ref: '#/components/schemas/SourceTrustLevel'
+      responses:
+        '201':
+          description: 作成した出典と抽出事実
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyImportResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/company-recommendation-runs:
+    post:
+      tags: [Recommendations]
+      operationId: createCompanyRecommendationRun
+      summary: 登録済み候補企業の公式情報を更新し、根拠付き企業提案を開始する
+      description: |
+        ローカルLLMの一般知識から任意企業を発見するAPIではない。候補は`candidateCompanyIds`、
+        または`recommendationEligible=true`の登録企業に限定する。`refreshOfficialSources=true`の場合、
+        各企業の`careerUrl`を優先し、なければ`officialUrl`をSSRF対策付きで取得してから比較する。
+        複数URL取得とAI処理を行うため非同期実行とし、進捗はGETでポーリングする。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRecommendationRunRequest'
+      responses:
+        '202':
+          description: 受理した提案実行
+          headers:
+            Location:
+              description: 実行状態を取得するURL
+              schema:
+                type: string
+                example: /api/v1/company-recommendation-runs/0d42d9dd-7cc3-42bc-8bdb-67a991675d62
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationRun'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/company-recommendation-runs/{recommendationRunId}:
+    parameters:
+      - $ref: '#/components/parameters/RecommendationRunId'
+    get:
+      tags: [Recommendations]
+      operationId: getCompanyRecommendationRun
+      summary: 企業提案の進捗と結果を取得する
+      responses:
+        '200':
+          description: 実行状態。完了時は`recommendations`を含む。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationRun'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/es-documents:
+    get:
+      tags: [ES]
+      operationId: listEsDocuments
+      summary: ES文書一覧を取得する
+      parameters:
+        - name: companyId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: ES文書一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EsDocumentSummary'
+    post:
+      tags: [ES]
+      operationId: createEsDocument
+      summary: ユーザーが作成したES原文を登録する
+      description: 空の文章からの自動生成はMVP対象外。`originalText`は1文字以上必要。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEsDocumentRequest'
+      responses:
+        '201':
+          description: 作成したES文書
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsDocument'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/es-documents/{esDocumentId}:
+    parameters:
+      - $ref: '#/components/parameters/EsDocumentId'
+    get:
+      tags: [ES]
+      operationId: getEsDocument
+      summary: ES文書と最新検査・推敲を取得する
+      responses:
+        '200':
+          description: ES文書
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsDocument'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [ES]
+      operationId: updateEsDocument
+      summary: ES設問・原文・指定文字数などを更新する
+      description: 更新すると既存の検査・推敲結果は`STALE`になる。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEsDocumentRequest'
+      responses:
+        '200':
+          description: 更新したES文書
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsDocument'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [ES]
+      operationId: deleteEsDocument
+      summary: ES文書と検査・推敲履歴を削除する
+      responses:
+        '204':
+          description: 削除完了
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/es-documents/{esDocumentId}/analyses:
+    parameters:
+      - $ref: '#/components/parameters/EsDocumentId'
+    post:
+      tags: [ES]
+      operationId: analyzeEsDocument
+      summary: ES原文の主張・根拠・文字数・設問適合性を検査する
+      responses:
+        '201':
+          description: 検査結果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsAnalysis'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/es-documents/{esDocumentId}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/EsDocumentId'
+    post:
+      tags: [ES]
+      operationId: reviseEsDocument
+      summary: 最新検査を基に、根拠付きの推敲案を作成する
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEsRevisionRequest'
+      responses:
+        '201':
+          description: 推敲案
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsRevision'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/es-revisions/{revisionId}/verify:
+    parameters:
+      - $ref: '#/components/parameters/RevisionId'
+    post:
+      tags: [ES]
+      operationId: verifyEsRevision
+      summary: 推敲後の文章を原文と同じルールで再検査する
+      responses:
+        '201':
+          description: 再検査結果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsAnalysis'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/es-revisions/{revisionId}/changes/{changeId}:
+    parameters:
+      - $ref: '#/components/parameters/RevisionId'
+      - $ref: '#/components/parameters/ChangeId'
+    patch:
+      tags: [ES]
+      operationId: reviewEsRevisionChange
+      summary: 推敲変更を採用または却下する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  $ref: '#/components/schemas/RevisionDecision'
+      responses:
+        '200':
+          description: 更新した変更項目
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionChange'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+components:
+  parameters:
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ExperienceId:
+      name: experienceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    HypothesisId:
+      name: hypothesisId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CompanyId:
+      name: companyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EsDocumentId:
+      name: esDocumentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RevisionId:
+      name: revisionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ChangeId:
+      name: changeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RecommendationRunId:
+      name: recommendationRunId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Cursor:
+      name: cursor
+      in: query
+      description: 前ページの`nextCursor`。省略時は先頭ページ。
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    ValidationError:
+      description: 入力形式または業務ルール違反
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            requestId: 0d42d9dd-7cc3-42bc-8bdb-67a991675d62
+            code: VALIDATION_ERROR
+            message: 入力内容を確認してください。
+            retryable: false
+            details:
+              - field: characterLimit
+                reason: 1以上を指定してください。
+    NotFound:
+      description: 指定したリソースが存在しない
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: 現在の状態では処理できない
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    AiUnavailable:
+      description: LM Studio未起動、モデル未ロード、または接続不能
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            requestId: e82b0d4c-6531-41ec-9229-38a20e813b4f
+            code: AI_UNAVAILABLE
+            message: LM Studioに接続できません。Local Serverとモデルを確認してください。
+            retryable: true
+            details: []
+    AiTimeout:
+      description: AI処理が制限時間を超過した
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnsafeUrl:
+      description: SSRF対策または許可スキームのルールによりURLを拒否した
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: アップロード上限を超過した
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnsupportedMediaType:
+      description: 未対応のファイル形式
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: 予期しないサーバーエラー
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, version, database, ai, timestamp]
+      properties:
+        status:
+          type: string
+          enum: [OK, DEGRADED]
+        version:
+          type: string
+          example: 0.1.0
+        database:
+          $ref: '#/components/schemas/DependencyHealth'
+        ai:
+          $ref: '#/components/schemas/DependencyHealth'
+        timestamp:
+          type: string
+          format: date-time
+
+    DependencyHealth:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN]
+        message:
+          type: string
+
+    LmStudioStatus:
+      type: object
+      required: [status, baseUrl, checkedAt]
+      properties:
+        status:
+          type: string
+          enum: [CONNECTED, SERVER_UNREACHABLE, MODEL_NOT_LOADED, INVALID_RESPONSE]
+        baseUrl:
+          type: string
+          format: uri
+          example: http://127.0.0.1:1234
+        modelId:
+          type: string
+        contextLength:
+          type: integer
+          minimum: 1
+        checkedAt:
+          type: string
+          format: date-time
+        guidance:
+          type: array
+          items:
+            type: string
+
+    AnalysisSessionStatus:
+      type: string
+      enum: [ACTIVE, READY_TO_FINALIZE, COMPLETED]
+
+    AnalysisSession:
+      type: object
+      required: [id, title, status, focusAreas, progress, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/AnalysisSessionStatus'
+        focusAreas:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/HypothesisCategory'
+        progress:
+          $ref: '#/components/schemas/AnalysisProgress'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    AnalysisProgress:
+      type: object
+      required: [confirmedExperienceCount, minimumExperienceCount, coveredExperienceTypes, missingAreas]
+      properties:
+        confirmedExperienceCount:
+          type: integer
+          minimum: 0
+        minimumExperienceCount:
+          type: integer
+          const: 3
+        coveredExperienceTypes:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ExperienceType'
+        missingAreas:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/HypothesisCategory'
+
+    CreateAnalysisSessionRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+          default: 自己分析
+        focusAreas:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          default: [CAN, WANT, ENERGY, CONTEXT]
+          items:
+            $ref: '#/components/schemas/HypothesisCategory'
+
+    MessageRole:
+      type: string
+      enum: [USER, ASSISTANT]
+
+    ChatMessage:
+      type: object
+      required: [id, sessionId, role, content, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/MessageRole'
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        questionTarget:
+          $ref: '#/components/schemas/QuestionTarget'
+        createdAt:
+          type: string
+          format: date-time
+
+    MessagePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        nextCursor:
+          type: string
+
+    SendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        clientMessageId:
+          type: string
+          format: uuid
+          description: 二重送信防止用。既送信IDなら同じ結果を返す。
+
+    ChatTurnResponse:
+      type: object
+      required: [userMessage, assistantMessage, evidenceCandidates, experienceReady, missingAreas]
+      properties:
+        userMessage:
+          $ref: '#/components/schemas/ChatMessage'
+        assistantMessage:
+          $ref: '#/components/schemas/ChatMessage'
+        evidenceCandidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceCandidate'
+        experienceReady:
+          type: boolean
+        missingAreas:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/HypothesisCategory'
+
+    QuestionTarget:
+      type: string
+      enum: [CAN, WANT, ENERGY, CONTEXT, EXPERIENCE_DETAIL, CONTRADICTION, CONFIRMATION]
+
+    CreateExperienceDraftRequest:
+      type: object
+      required: [experienceType, messageIds]
+      properties:
+        experienceType:
+          $ref: '#/components/schemas/ExperienceType'
+        messageIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+
+    ExperienceStatus:
+      type: string
+      enum: [DRAFT, CONFIRMED]
+
+    ExperienceType:
+      type: string
+      enum: [ENGAGED, ACHIEVEMENT, CHALLENGE, DRAINING_SUCCESS, TEAM_CONFLICT, OTHER]
+
+    EnergyChange:
+      type: integer
+      minimum: -2
+      maximum: 2
+      description: -2=大きく消耗、-1=やや消耗、0=中立/不明、1=やや元気、2=大きく元気
+
+    Experience:
+      type: object
+      required:
+        - id
+        - type
+        - title
+        - situation
+        - role
+        - actions
+        - energyChange
+        - environment
+        - evidenceQuotes
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        sourceSessionId:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/ExperienceType'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        situation:
+          type: string
+          minLength: 1
+          maxLength: 3000
+        goal:
+          type: string
+          maxLength: 2000
+        role:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        options:
+          type: array
+          items:
+            type: string
+            maxLength: 1000
+        decision:
+          type: string
+          maxLength: 2000
+        decisionReason:
+          type: string
+          maxLength: 2000
+        actions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            maxLength: 2000
+        result:
+          type: string
+          maxLength: 3000
+        positiveEmotion:
+          type: string
+          maxLength: 2000
+        negativeEmotion:
+          type: string
+          maxLength: 2000
+        energyChange:
+          $ref: '#/components/schemas/EnergyChange'
+        environment:
+          type: array
+          items:
+            type: string
+            maxLength: 500
+        evidenceQuotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageQuote'
+        status:
+          $ref: '#/components/schemas/ExperienceStatus'
+        confirmedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateExperienceRequest:
+      type: object
+      required: [type, title, situation, role, actions, energyChange, environment]
+      properties:
+        type:
+          $ref: '#/components/schemas/ExperienceType'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        situation:
+          type: string
+          minLength: 1
+          maxLength: 3000
+        goal:
+          type: string
+          maxLength: 2000
+        role:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        options:
+          type: array
+          items:
+            type: string
+        decision:
+          type: string
+        decisionReason:
+          type: string
+        actions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        result:
+          type: string
+        positiveEmotion:
+          type: string
+        negativeEmotion:
+          type: string
+        energyChange:
+          $ref: '#/components/schemas/EnergyChange'
+        environment:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ExperienceStatus'
+
+    UpdateExperienceRequest:
+      type: object
+      minProperties: 1
+      properties:
+        type:
+          $ref: '#/components/schemas/ExperienceType'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        situation:
+          type: string
+          minLength: 1
+          maxLength: 3000
+        goal:
+          type: string
+          maxLength: 2000
+        role:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        options:
+          type: array
+          items:
+            type: string
+        decision:
+          type: string
+        decisionReason:
+          type: string
+        actions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        result:
+          type: string
+        positiveEmotion:
+          type: string
+        negativeEmotion:
+          type: string
+        energyChange:
+          $ref: '#/components/schemas/EnergyChange'
+        environment:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ExperienceStatus'
+
+    ExperiencePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Experience'
+        nextCursor:
+          type: string
+
+    MessageQuote:
+      type: object
+      required: [messageId, quote]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        quote:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    HypothesisCategory:
+      type: string
+      enum: [CAN, WANT, ENERGY, CONTEXT]
+
+    EvidenceSupportType:
+      type: string
+      enum: [SUPPORT, COUNTER, UNKNOWN]
+
+    EvidenceCandidate:
+      type: object
+      required: [category, statement, supportType, quote, messageId, interpretation]
+      properties:
+        category:
+          $ref: '#/components/schemas/HypothesisCategory'
+        statement:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        supportType:
+          $ref: '#/components/schemas/EvidenceSupportType'
+        quote:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        messageId:
+          type: string
+          format: uuid
+        interpretation:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    EvidenceReference:
+      type: object
+      required: [id, experienceId, supportType, quote, interpretation]
+      properties:
+        id:
+          type: string
+          format: uuid
+        experienceId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+        supportType:
+          $ref: '#/components/schemas/EvidenceSupportType'
+        quote:
+          type: string
+          minLength: 1
+        interpretation:
+          type: string
+          minLength: 1
+
+    HypothesisStatus:
+      type: string
+      enum: [CONFIRMED_PATTERN, CURRENT_HYPOTHESIS, INSUFFICIENT_EVIDENCE]
+
+    UserAssessment:
+      type: string
+      enum: [UNREVIEWED, MATCHES, PARTIALLY_MATCHES, DOES_NOT_MATCH, NEEDS_EXPLORATION]
+
+    CareerHypothesis:
+      type: object
+      required:
+        - id
+        - category
+        - aiStatement
+        - displayStatement
+        - status
+        - evidence
+        - counterEvidence
+        - enablingConditions
+        - riskConditions
+        - userAssessment
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        category:
+          $ref: '#/components/schemas/HypothesisCategory'
+        aiStatement:
+          type: string
+          description: AIが最初に生成した文。監査用に保持し上書きしない。
+        displayStatement:
+          type: string
+          description: ユーザー修正を反映した表示文。
+        status:
+          $ref: '#/components/schemas/HypothesisStatus'
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceReference'
+        counterEvidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceReference'
+        enablingConditions:
+          type: array
+          items:
+            type: string
+        riskConditions:
+          type: array
+          items:
+            type: string
+        userAssessment:
+          $ref: '#/components/schemas/UserAssessment'
+        userNote:
+          type: string
+          maxLength: 3000
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ReviewHypothesisRequest:
+      type: object
+      required: [assessment]
+      properties:
+        assessment:
+          $ref: '#/components/schemas/UserAssessment'
+        editedStatement:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        note:
+          type: string
+          maxLength: 3000
+
+    CareerCondition:
+      type: object
+      required: [statement, evidenceHypothesisIds]
+      properties:
+        statement:
+          type: string
+        evidenceHypothesisIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+
+    CareerReport:
+      type: object
+      required:
+        - id
+        - summary
+        - confirmedCan
+        - currentHypotheses
+        - wants
+        - energizingActivities
+        - drainingActivities
+        - enablingContexts
+        - riskContexts
+        - mustConditions
+        - preferConditions
+        - avoidConditions
+        - verifyConditions
+        - nextExperiments
+        - generatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        sourceSessionId:
+          type: string
+          format: uuid
+        summary:
+          type: string
+        confirmedCan:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerHypothesis'
+        currentHypotheses:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerHypothesis'
+        wants:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerHypothesis'
+        energizingActivities:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerCondition'
+        drainingActivities:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerCondition'
+        enablingContexts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerCondition'
+        riskContexts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerCondition'
+        mustConditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerCondition'
+        preferConditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerCondition'
+        avoidConditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerCondition'
+        verifyConditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerCondition'
+        nextExperiments:
+          type: array
+          items:
+            type: string
+        generatedAt:
+          type: string
+          format: date-time
+
+    CreateCompanyRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        targetRole:
+          type: string
+          maxLength: 200
+        officialUrl:
+          type: string
+          format: uri
+        careerUrl:
+          type: string
+          format: uri
+        recommendationEligible:
+          type: boolean
+          default: false
+        note:
+          type: string
+          maxLength: 5000
+
+    UpdateCompanyRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        targetRole:
+          type: string
+          maxLength: 200
+        officialUrl:
+          type: string
+          format: uri
+        careerUrl:
+          type: string
+          format: uri
+        recommendationEligible:
+          type: boolean
+        note:
+          type: string
+          maxLength: 5000
+
+    CompanySummary:
+      type: object
+      required: [id, name, origin, recommendationEligible, sourceCount, factCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        targetRole:
+          type: string
+        origin:
+          $ref: '#/components/schemas/CompanyOrigin'
+        officialUrl:
+          type: string
+          format: uri
+        careerUrl:
+          type: string
+          format: uri
+        recommendationEligible:
+          type: boolean
+        sourceCount:
+          type: integer
+          minimum: 0
+        factCount:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CompanyOrigin:
+      type: string
+      enum: [USER_REGISTERED, CURATED]
+
+    Company:
+      allOf:
+        - $ref: '#/components/schemas/CompanySummary'
+        - type: object
+          required: [sources, facts, unknownItems]
+          properties:
+            note:
+              type: string
+            sources:
+              type: array
+              items:
+                $ref: '#/components/schemas/CompanySource'
+            facts:
+              type: array
+              items:
+                $ref: '#/components/schemas/CompanyFact'
+            unknownItems:
+              type: array
+              items:
+                type: string
+
+    SourceType:
+      type: string
+      enum: [URL, TEXT, PDF, DOCX, TXT]
+
+    SourceTrustLevel:
+      type: string
+      enum: [OFFICIAL, USER_PROVIDED_UNVERIFIED]
+
+    CompanySource:
+      type: object
+      required: [id, type, trustLevel, title, retrievedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/SourceType'
+        trustLevel:
+          $ref: '#/components/schemas/SourceTrustLevel'
+        title:
+          type: string
+        url:
+          type: string
+          format: uri
+        retrievedAt:
+          type: string
+          format: date-time
+
+    CompanyFactCategory:
+      type: string
+      enum:
+        - MISSION
+        - BUSINESS
+        - PRODUCT_OR_SERVICE
+        - DESIRED_CANDIDATE
+        - REQUIRED_SKILL
+        - WORK_ENVIRONMENT
+        - INTERNSHIP_DETAIL
+        - ELIGIBILITY
+        - DEADLINE
+        - LOCATION
+        - WORK_STYLE
+        - OTHER
+
+    CompanyFact:
+      type: object
+      required: [id, sourceId, category, fact, evidenceQuote]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sourceId:
+          type: string
+          format: uuid
+        category:
+          $ref: '#/components/schemas/CompanyFactCategory'
+        fact:
+          type: string
+          minLength: 1
+        evidenceQuote:
+          type: string
+          minLength: 1
+        sourceUrl:
+          type: string
+          format: uri
+
+    ImportCompanyTextRequest:
+      type: object
+      required: [title, text, trustLevel]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        text:
+          type: string
+          minLength: 1
+          maxLength: 100000
+        sourceUrl:
+          type: string
+          format: uri
+        trustLevel:
+          $ref: '#/components/schemas/SourceTrustLevel'
+
+    ImportCompanyUrlRequest:
+      type: object
+      required: [url, trustLevel]
+      properties:
+        url:
+          type: string
+          format: uri
+        trustLevel:
+          $ref: '#/components/schemas/SourceTrustLevel'
+        renderJavaScript:
+          type: boolean
+          default: false
+          description: P2機能。falseで取得できない動的ページだけtrueにする。
+
+    CompanyImportResult:
+      type: object
+      required: [source, facts, unknownItems]
+      properties:
+        source:
+          $ref: '#/components/schemas/CompanySource'
+        facts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyFact'
+        unknownItems:
+          type: array
+          items:
+            type: string
+
+    RecommendationRunStatus:
+      type: string
+      enum: [QUEUED, FETCHING_SOURCES, ANALYZING, COMPLETED, PARTIALLY_COMPLETED, FAILED]
+
+    RecommendationSlot:
+      type: string
+      enum: [PRIMARY, CHALLENGE, UNEXPECTED]
+
+    CreateRecommendationRunRequest:
+      type: object
+      properties:
+        careerReportId:
+          type: string
+          format: uuid
+          description: 省略時は最新かつ古くないキャリアレポートを使用する。
+        candidateCompanyIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          description: 省略時は`recommendationEligible=true`の企業を最大`maxCandidates`件使う。
+          items:
+            type: string
+            format: uuid
+        maxCandidates:
+          type: integer
+          minimum: 3
+          maximum: 20
+          default: 10
+        targetRoles:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 200
+        preferredLocations:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 200
+        refreshOfficialSources:
+          type: boolean
+          default: true
+
+    RecommendationProgress:
+      type: object
+      required: [total, fetched, analyzed, failed]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        fetched:
+          type: integer
+          minimum: 0
+        analyzed:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+
+    RecommendationWarning:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [SOURCE_FETCH_FAILED, NO_OFFICIAL_URL, INSUFFICIENT_COMPANY_FACTS, STALE_SOURCE_USED]
+        companyId:
+          type: string
+          format: uuid
+        message:
+          type: string
+
+    CompanyRecommendation:
+      type: object
+      required:
+        - id
+        - company
+        - slot
+        - rank
+        - rationale
+        - connectedExperienceIds
+        - matchingConditions
+        - concerns
+        - unknowns
+        - verificationQuestions
+        - companySourceIds
+        - generatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        company:
+          $ref: '#/components/schemas/CompanySummary'
+        slot:
+          $ref: '#/components/schemas/RecommendationSlot'
+        rank:
+          type: integer
+          minimum: 1
+          description: 実行内の表示順。適性スコアではない。
+        recommendedRole:
+          type: string
+        rationale:
+          type: string
+        connectedExperienceIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        matchingConditions:
+          type: array
+          items:
+            type: string
+        concerns:
+          type: array
+          items:
+            type: string
+        unknowns:
+          type: array
+          items:
+            type: string
+        verificationQuestions:
+          type: array
+          items:
+            type: string
+        companySourceIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        generatedAt:
+          type: string
+          format: date-time
+
+    RecommendationRun:
+      type: object
+      required:
+        - id
+        - careerReportId
+        - candidateCompanyIds
+        - refreshOfficialSources
+        - status
+        - progress
+        - warnings
+        - recommendations
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        careerReportId:
+          type: string
+          format: uuid
+        candidateCompanyIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        refreshOfficialSources:
+          type: boolean
+        status:
+          $ref: '#/components/schemas/RecommendationRunStatus'
+        progress:
+          $ref: '#/components/schemas/RecommendationProgress'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecommendationWarning'
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyRecommendation'
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    EsDocumentStatus:
+      type: string
+      enum: [DRAFT, ANALYZED, REVISED, VERIFIED]
+
+    ResultFreshness:
+      type: string
+      enum: [CURRENT, STALE]
+
+    EsDocumentSummary:
+      type: object
+      required: [id, companyId, question, characterLimit, characterCount, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        companyId:
+          type: string
+          format: uuid
+        targetRole:
+          type: string
+        question:
+          type: string
+        characterLimit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        characterCount:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/EsDocumentStatus'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    EsDocument:
+      allOf:
+        - $ref: '#/components/schemas/EsDocumentSummary'
+        - type: object
+          required: [originalText, selectedExperienceIds, emphasis, analyses, revisions]
+          properties:
+            originalText:
+              type: string
+              minLength: 1
+              maxLength: 20000
+            selectedExperienceIds:
+              type: array
+              uniqueItems: true
+              items:
+                type: string
+                format: uuid
+            emphasis:
+              type: array
+              items:
+                type: string
+            analyses:
+              type: array
+              items:
+                $ref: '#/components/schemas/EsAnalysis'
+            revisions:
+              type: array
+              items:
+                $ref: '#/components/schemas/EsRevision'
+
+    CreateEsDocumentRequest:
+      type: object
+      required: [companyId, question, characterLimit, originalText]
+      properties:
+        companyId:
+          type: string
+          format: uuid
+        targetRole:
+          type: string
+          maxLength: 200
+        question:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        characterLimit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        originalText:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        selectedExperienceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        emphasis:
+          type: array
+          items:
+            type: string
+            maxLength: 500
+
+    UpdateEsDocumentRequest:
+      type: object
+      minProperties: 1
+      properties:
+        targetRole:
+          type: string
+          maxLength: 200
+        question:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        characterLimit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        originalText:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        selectedExperienceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        emphasis:
+          type: array
+          items:
+            type: string
+
+    ClaimType:
+      type: string
+      enum: [PERSONAL_FACT, NUMBER, PERIOD, ROLE, RESULT, CAPABILITY, COMPANY_FACT, MOTIVATION, FUTURE_GOAL]
+
+    ClaimStatus:
+      type: string
+      enum: [VERIFIED, PARTIALLY_VERIFIED, NEEDS_CONFIRMATION, CONTRADICTED]
+
+    ClaimEvidence:
+      type: object
+      required: [sourceType, sourceId, quote]
+      properties:
+        sourceType:
+          type: string
+          enum: [EXPERIENCE, COMPANY_FACT]
+        sourceId:
+          type: string
+          format: uuid
+        quote:
+          type: string
+
+    EsClaim:
+      type: object
+      required: [id, sentence, text, type, status, evidence]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sentence:
+          type: string
+        text:
+          type: string
+        type:
+          $ref: '#/components/schemas/ClaimType'
+        status:
+          $ref: '#/components/schemas/ClaimStatus'
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClaimEvidence'
+        explanation:
+          type: string
+
+    EsIssueCode:
+      type: string
+      enum:
+        - QUESTION_NOT_ANSWERED
+        - UNSUPPORTED_PERSONAL_FACT
+        - UNSUPPORTED_COMPANY_FACT
+        - CONTRADICTION
+        - ABSTRACT_EXPRESSION
+        - REDUNDANT_EXPRESSION
+        - CHARACTER_LIMIT_EXCEEDED
+        - CHARACTER_LIMIT_UNDERUSED
+        - VOICE_DEVIATION
+
+    EsIssue:
+      type: object
+      required: [code, severity, message]
+      properties:
+        code:
+          $ref: '#/components/schemas/EsIssueCode'
+        severity:
+          type: string
+          enum: [ERROR, WARNING, INFO]
+        message:
+          type: string
+        sentence:
+          type: string
+        relatedClaimIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    EsAnalysis:
+      type: object
+      required:
+        - id
+        - esDocumentId
+        - sourceKind
+        - freshness
+        - characterCount
+        - withinCharacterLimit
+        - questionCoverage
+        - claims
+        - issues
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        esDocumentId:
+          type: string
+          format: uuid
+        revisionId:
+          type: string
+          format: uuid
+        sourceKind:
+          type: string
+          enum: [ORIGINAL, REVISION]
+        freshness:
+          $ref: '#/components/schemas/ResultFreshness'
+        characterCount:
+          type: integer
+          minimum: 0
+          description: Unicodeコードポイント数。CRLFはLFへ正規化し、改行・空白も1文字として数える。
+        withinCharacterLimit:
+          type: boolean
+        questionCoverage:
+          type: string
+          enum: [ANSWERED, PARTIALLY_ANSWERED, NOT_ANSWERED]
+        claims:
+          type: array
+          items:
+            $ref: '#/components/schemas/EsClaim'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/EsIssue'
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateEsRevisionRequest:
+      type: object
+      properties:
+        emphasis:
+          type: array
+          items:
+            type: string
+        preserveExpressions:
+          type: array
+          description: 必ず残したい本人の表現。
+          items:
+            type: string
+
+    RevisionDecision:
+      type: string
+      enum: [PENDING, ACCEPTED, REJECTED]
+
+    RevisionChange:
+      type: object
+      required: [id, before, after, reason, evidence, decision]
+      properties:
+        id:
+          type: string
+          format: uuid
+        before:
+          type: string
+        after:
+          type: string
+        reason:
+          type: string
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClaimEvidence'
+        decision:
+          $ref: '#/components/schemas/RevisionDecision'
+
+    EsRevision:
+      type: object
+      required:
+        - id
+        - esDocumentId
+        - freshness
+        - revisedText
+        - characterCount
+        - changes
+        - unsupportedClaims
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        esDocumentId:
+          type: string
+          format: uuid
+        basedOnAnalysisId:
+          type: string
+          format: uuid
+        freshness:
+          $ref: '#/components/schemas/ResultFreshness'
+        revisedText:
+          type: string
+        characterCount:
+          type: integer
+          minimum: 0
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevisionChange'
+        unsupportedClaims:
+          type: array
+          items:
+            $ref: '#/components/schemas/EsClaim'
+        verificationAnalysisId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    ErrorDetail:
+      type: object
+      properties:
+        field:
+          type: string
+        reason:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    ErrorResponse:
+      type: object
+      required: [requestId, code, message, retryable, details]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - NOT_FOUND
+            - CONFLICT
+            - AI_UNAVAILABLE
+            - AI_TIMEOUT
+            - AI_INVALID_OUTPUT
+            - UNSAFE_URL
+            - FETCH_FAILED
+            - PAYLOAD_TOO_LARGE
+            - UNSUPPORTED_MEDIA_TYPE
+            - INTERNAL_ERROR
+        message:
+          type: string
+        retryable:
+          type: boolean
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'

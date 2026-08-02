@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/ai/experience-draft-output.schema.json",
+  "title": "Experience draft extraction output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "title",
+    "situation",
+    "goal",
+    "role",
+    "options",
+    "decision",
+    "decisionReason",
+    "actions",
+    "result",
+    "positiveEmotion",
+    "negativeEmotion",
+    "energyChange",
+    "environment",
+    "evidenceQuotes",
+    "missingFields"
+  ],
+  "properties": {
+    "type": { "$ref": "common.schema.json#/$defs/experienceType" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "situation": { "type": "string", "minLength": 1, "maxLength": 3000 },
+    "goal": { "type": ["string", "null"], "maxLength": 2000 },
+    "role": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "options": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 1000 }
+    },
+    "decision": { "type": ["string", "null"], "maxLength": 2000 },
+    "decisionReason": { "type": ["string", "null"], "maxLength": 2000 },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "maxLength": 2000 }
+    },
+    "result": { "type": ["string", "null"], "maxLength": 3000 },
+    "positiveEmotion": { "type": ["string", "null"], "maxLength": 2000 },
+    "negativeEmotion": { "type": ["string", "null"], "maxLength": 2000 },
+    "energyChange": { "type": "integer", "minimum": -2, "maximum": 2 },
+    "environment": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 500 }
+    },
+    "evidenceQuotes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "common.schema.json#/$defs/messageQuote" }
+    },
+    "missingFields": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "situation",
+          "goal",
+          "role",
+          "options",
+          "decision",
+          "decisionReason",
+          "actions",
+          "result",
+          "positiveEmotion",
+          "negativeEmotion",
+          "energyChange",
+          "environment"
+        ]
+      }
+    }
+  }
+}
+

@@ -1,0 +1,10 @@
+extends:
+  - recommended
+
+rules:
+  # Polaris MVP is intentionally served only from the local demo machine.
+  no-server-example.com: off
+  # Read-only local endpoints do not have a meaningful 4xx response in this MVP.
+  operation-4xx-response: off
+  # The team has not selected an OSS license; UNLICENSED must not link to one.
+  info-license-strict: off

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/ai/hypotheses-output.schema.json",
+  "title": "Career hypotheses generation output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["hypotheses", "missingAreas", "contradictionsToExplore"],
+  "properties": {
+    "hypotheses": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "statement",
+          "supportingEvidenceIds",
+          "counterEvidenceIds",
+          "enablingConditions",
+          "riskConditions"
+        ],
+        "properties": {
+          "category": { "$ref": "common.schema.json#/$defs/hypothesisCategory" },
+          "statement": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "supportingEvidenceIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "format": "uuid" }
+          },
+          "counterEvidenceIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "format": "uuid" }
+          },
+          "enablingConditions": {
+            "type": "array",
+            "items": { "type": "string", "maxLength": 500 }
+          },
+          "riskConditions": {
+            "type": "array",
+            "items": { "type": "string", "maxLength": 500 }
+          }
+        }
+      }
+    },
+    "missingAreas": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/hypothesisCategory" }
+    },
+    "contradictionsToExplore": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 1000 }
+    }
+  }
+}
+
