@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/ai/experience-grounding-output.schema.json",
+  "title": "Experience draft grounding verification output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assessments"],
+  "properties": {
+    "assessments": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "grounded",
+          "messageId",
+          "quote",
+          "explanation"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": ["goal", "options", "decision", "decisionReason"]
+          },
+          "grounded": { "type": "boolean" },
+          "messageId": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "quote": {
+            "type": ["string", "null"],
+            "maxLength": 2000
+          },
+          "explanation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      }
+    }
+  }
+}

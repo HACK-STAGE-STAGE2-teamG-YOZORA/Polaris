@@ -6,6 +6,7 @@ LM Studioへ構造化出力を要求する各タスクのJSON Schema。AI担当�
 |---|---|
 | 自己分析チャット | `chat-turn-output.schema.json` |
 | 経験カード抽出 | `experience-draft-output.schema.json` |
+| 経験カードの推測検査 | `experience-grounding-output.schema.json` |
 | 4領域の仮説生成 | `hypotheses-output.schema.json` |
 | キャリアレポート文生成 | `career-report-output.schema.json` |
 | 企業情報抽出 | `company-facts-output.schema.json` |
