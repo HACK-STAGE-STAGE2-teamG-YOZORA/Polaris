@@ -9,6 +9,7 @@ import {
   buildHypothesesPrompt,
 } from "./prompts.ts";
 import {
+  filterAndRecoverMessageQuotes,
   recoverExactQuote,
   verifyAndRecoverMessageQuotes,
 } from "./quotes.ts";
@@ -88,7 +89,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
           );
         }
 
-        verifyAndRecoverMessageQuotes(
+        output.evidenceCandidates = filterAndRecoverMessageQuotes(
           output.evidenceCandidates,
           input.messages,
         );

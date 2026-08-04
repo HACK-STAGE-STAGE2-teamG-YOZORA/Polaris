@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { LmStudioPolarisAiGateway } from "../src/infrastructure/ai/lm-studio-ai-gateway.ts";
+import { filterAndRecoverMessageQuotes } from "../src/infrastructure/ai/quotes.ts";
 import type { ConversationMessage } from "../src/infrastructure/ai/types.ts";
 
 const ai = new LmStudioPolarisAiGateway();
@@ -13,6 +14,26 @@ const messages: ConversationMessage[] = [
       "大学の授業で4人チームのWebアプリを作りました。私はAPI設計とタスク分解を担当し、得意分野ごとに役割を決めました。期限内に完成して達成感がありましたが、途中の進捗調整は少し疲れました。",
   },
 ];
+
+const invalidQuotes = filterAndRecoverMessageQuotes(
+  [
+    {
+      messageId: userMessageId,
+      quote: "雰囲气を和ませよう",
+    },
+  ],
+  [
+    {
+      id: userMessageId,
+      role: "USER",
+      content: "どうやって雰囲気を和ませよう",
+    },
+  ],
+);
+
+if (invalidQuotes.length !== 0) {
+  throw new Error("原文と異なる引用候補を破棄できませんでした。");
+}
 
 try {
   console.log("自己分析チャットを生成しています...");

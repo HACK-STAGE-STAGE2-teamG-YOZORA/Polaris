@@ -11,6 +11,7 @@ enum AnalysisSessionStatus {
   ACTIVE
   READY_TO_FINALIZE
   COMPLETED
+  ABANDONED
 }
 
 enum MessageRole {
@@ -19,10 +20,10 @@ enum MessageRole {
 }
 
 enum QuestionTarget {
-  CAN
-  WANT
-  ENERGY
-  CONTEXT
+  ENERGY_SOURCE
+  ACTION_STYLE
+  SATISFACTION_SOURCE
+  PREFERRED_ENVIRONMENT
   EXPERIENCE_DETAIL
   CONTRADICTION
   CONFIRMATION
@@ -42,11 +43,29 @@ enum ExperienceStatus {
   CONFIRMED
 }
 
-enum HypothesisCategory {
-  CAN
-  WANT
-  ENERGY
-  CONTEXT
+enum SelfAnalysisAxis {
+  ENERGY_SOURCE
+  ACTION_STYLE
+  SATISFACTION_SOURCE
+  PREFERRED_ENVIRONMENT
+}
+
+enum AxisPole {
+  LEFT
+  RIGHT
+  BOTH
+  CONTEXT_DEPENDENT
+  UNKNOWN
+}
+
+enum AxisPosition {
+  LEFT
+  LEANS_LEFT
+  BALANCED_OR_BOTH
+  LEANS_RIGHT
+  RIGHT
+  CONTEXT_DEPENDENT
+  INSUFFICIENT_EVIDENCE
 }
 
 enum EvidenceSupportType {
@@ -55,7 +74,7 @@ enum EvidenceSupportType {
   UNKNOWN
 }
 
-enum HypothesisStatus {
+enum AxisAssessmentStatus {
   CONFIRMED_PATTERN
   CURRENT_HYPOTHESIS
   INSUFFICIENT_EVIDENCE
@@ -155,6 +174,11 @@ enum RevisionDecision {
   REJECTED
 }
 
+enum SubmissionReadiness {
+  READY_TO_SUBMIT
+  NEEDS_REVIEW
+}
+
 enum RecommendationRunStatus {
   QUEUED
   FETCHING_SOURCES
@@ -174,30 +198,32 @@ model AnalysisSession {
   id          String                @id @default(uuid())
   title       String
   status      AnalysisSessionStatus
-  focusAreas  Json                  @map("focus_areas_json")
+  targetAxes  Json                  @map("target_axes_json")
   createdAt   DateTime              @default(now()) @map("created_at")
   updatedAt   DateTime              @updatedAt @map("updated_at")
   completedAt DateTime?             @map("completed_at")
 
   messages    Message[]
   experiences Experience[]
-  reports     CareerReport[]
+  assessments AxisAssessment[]
+  report      SelfAnalysisReport?
 
   @@map("analysis_sessions")
 }
 
 model Message {
-  id              String          @id @default(uuid())
-  sessionId       String          @map("session_id")
-  role            MessageRole
-  content         String
-  questionTarget  QuestionTarget? @map("question_target")
-  clientMessageId String?         @unique @map("client_message_id")
-  createdAt       DateTime        @default(now()) @map("created_at")
+  id                 String          @id @default(uuid())
+  sessionId          String          @map("session_id")
+  role               MessageRole
+  content            String
+  questionTarget     QuestionTarget? @map("question_target")
+  evidenceCandidates Json?           @map("evidence_candidates_json")
+  clientMessageId    String?         @unique @map("client_message_id")
+  createdAt          DateTime        @default(now()) @map("created_at")
 
   session       AnalysisSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   quotes        ExperienceQuote[]
-  evidenceItems EvidenceItem[]
+  evidenceItems AxisEvidenceItem[]
 
   @@index([sessionId, createdAt])
   @@map("messages")
@@ -227,7 +253,7 @@ model Experience {
 
   sourceSession AnalysisSession?  @relation(fields: [sourceSessionId], references: [id], onDelete: SetNull)
   quotes        ExperienceQuote[]
-  evidenceItems EvidenceItem[]
+  evidenceItems AxisEvidenceItem[]
 
   @@index([status])
   @@map("experiences")
@@ -247,81 +273,103 @@ model ExperienceQuote {
   @@map("experience_quotes")
 }
 
-model EvidenceItem {
+model AxisEvidenceItem {
   id             String              @id @default(uuid())
   experienceId   String              @map("experience_id")
   messageId      String?             @map("message_id")
-  category       HypothesisCategory
+  axis           SelfAnalysisAxis
+  pole           AxisPole
   statement      String
   supportType    EvidenceSupportType @map("support_type")
   quote          String
   interpretation String
   createdAt      DateTime            @default(now()) @map("created_at")
 
-  experience      Experience           @relation(fields: [experienceId], references: [id], onDelete: Cascade)
-  message         Message?             @relation(fields: [messageId], references: [id], onDelete: SetNull)
-  hypothesisLinks HypothesisEvidence[]
+  experience      Experience               @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  message         Message?                 @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  assessmentLinks AxisAssessmentEvidence[]
 
   @@index([experienceId])
-  @@index([category])
-  @@map("evidence_items")
+  @@index([axis, pole])
+  @@map("axis_evidence_items")
 }
 
-model CareerHypothesis {
-  id                 String             @id @default(uuid())
-  category           HypothesisCategory
-  aiStatement        String             @map("ai_statement")
-  displayStatement   String             @map("display_statement")
-  status             HypothesisStatus
-  enablingConditions Json               @map("enabling_conditions_json")
-  riskConditions     Json               @map("risk_conditions_json")
-  userAssessment     UserAssessment     @default(UNREVIEWED) @map("user_assessment")
-  userNote           String?            @map("user_note")
-  internalConfidence Float?             @map("internal_confidence")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
+model AxisAssessment {
+  id                 String               @id @default(uuid())
+  sourceSessionId    String               @map("source_session_id")
+  axis               SelfAnalysisAxis
+  position           AxisPosition
+  aiStatement        String               @map("ai_statement")
+  displayStatement   String               @map("display_statement")
+  status             AxisAssessmentStatus
+  leftConditions     Json                 @map("left_conditions_json")
+  rightConditions    Json                 @map("right_conditions_json")
+  contextNotes       Json                 @map("context_notes_json")
+  userAssessment     UserAssessment       @default(UNREVIEWED) @map("user_assessment")
+  userNote           String?              @map("user_note")
+  internalConfidence Float?               @map("internal_confidence")
+  isStale            Boolean              @default(false) @map("is_stale")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
 
-  evidenceLinks HypothesisEvidence[]
+  sourceSession AnalysisSession          @relation(fields: [sourceSessionId], references: [id], onDelete: Cascade)
+  evidenceLinks AxisAssessmentEvidence[]
 
-  @@index([category, status])
-  @@map("career_hypotheses")
+  @@unique([sourceSessionId, axis])
+  @@index([axis, status])
+  @@map("axis_assessments")
 }
 
-model HypothesisEvidence {
-  hypothesisId String @map("hypothesis_id")
-  evidenceId   String @map("evidence_id")
+model AxisAssessmentEvidence {
+  axisAssessmentId String @map("axis_assessment_id")
+  evidenceId       String @map("evidence_id")
 
-  hypothesis CareerHypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
-  evidence   EvidenceItem     @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  assessment AxisAssessment  @relation(fields: [axisAssessmentId], references: [id], onDelete: Cascade)
+  evidence   AxisEvidenceItem @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
 
-  @@id([hypothesisId, evidenceId])
-  @@map("hypothesis_evidence")
+  @@id([axisAssessmentId, evidenceId])
+  @@map("axis_assessment_evidence")
 }
 
-model CareerReport {
-  id                   String   @id @default(uuid())
-  sourceSessionId      String   @map("source_session_id")
-  summary              String
-  confirmedCan         Json     @map("confirmed_can_json")
-  currentHypotheses    Json     @map("current_hypotheses_json")
-  wants                Json     @map("wants_json")
-  energizingActivities Json     @map("energizing_activities_json")
-  drainingActivities   Json     @map("draining_activities_json")
-  enablingContexts     Json     @map("enabling_contexts_json")
-  riskContexts         Json     @map("risk_contexts_json")
-  mustConditions       Json     @map("must_conditions_json")
-  preferConditions     Json     @map("prefer_conditions_json")
-  avoidConditions      Json     @map("avoid_conditions_json")
-  verifyConditions     Json     @map("verify_conditions_json")
-  nextExperiments      Json     @map("next_experiments_json")
-  isStale              Boolean  @default(false) @map("is_stale")
-  generatedAt          DateTime @default(now()) @map("generated_at")
+model SelfAnalysisReport {
+  id                       String   @id @default(uuid())
+  sourceSessionId          String   @unique @map("source_session_id")
+  summary                  String
+  axisSnapshots            Json     @map("axis_snapshots_json")
+  mustConditions           Json     @map("must_conditions_json")
+  preferConditions         Json     @map("prefer_conditions_json")
+  avoidConditions          Json     @map("avoid_conditions_json")
+  verifyConditions         Json     @map("verify_conditions_json")
+  nextExperiments          Json     @map("next_experiments_json")
+  userMessageCount         Int      @map("user_message_count")
+  confirmedExperienceCount Int      @map("confirmed_experience_count")
+  isStale                  Boolean  @default(false) @map("is_stale")
+  generatedAt              DateTime @default(now()) @map("generated_at")
 
   sourceSession      AnalysisSession     @relation(fields: [sourceSessionId], references: [id], onDelete: Restrict)
   recommendationRuns RecommendationRun[]
 
   @@index([generatedAt])
-  @@map("career_reports")
+  @@map("self_analysis_reports")
+}
+
+model OverallSelfAnalysisProfile {
+  id                       String          @id @default("default")
+  summary                  String
+  axisTrends               Json            @map("axis_trends_json")
+  strengths                Json            @map("strengths_json")
+  weaknesses               Json            @map("weaknesses_json")
+  sourceReportIds          Json            @map("source_report_ids_json")
+  completedSessionCount    Int             @map("completed_session_count")
+  userMessageCount         Int             @map("user_message_count")
+  confirmedExperienceCount Int             @map("confirmed_experience_count")
+  isDataSparse             Boolean         @map("is_data_sparse")
+  dataWarningReasons       Json            @map("data_warning_reasons_json")
+  freshness                ResultFreshness
+  generatedAt              DateTime        @default(now()) @map("generated_at")
+  updatedAt                DateTime        @updatedAt @map("updated_at")
+
+  @@map("overall_self_analysis_profiles")
 }
 
 model Company {
@@ -379,19 +427,19 @@ model CompanyFact {
 }
 
 model EsDocument {
-  id                    String           @id @default(uuid())
-  companyId             String           @map("company_id")
-  targetRole            String?          @map("target_role")
-  question              String
-  characterLimit        Int              @map("character_limit")
-  originalText          String           @map("original_text")
-  selectedExperienceIds Json             @map("selected_experience_ids_json")
-  emphasis              Json             @map("emphasis_json")
-  status                EsDocumentStatus @default(DRAFT)
-  createdAt             DateTime         @default(now()) @map("created_at")
-  updatedAt             DateTime         @updatedAt @map("updated_at")
+  id                     String           @id @default(uuid())
+  companyId              String?          @map("company_id")
+  targetRole             String?          @map("target_role")
+  question               String
+  characterLimit         Int              @map("character_limit")
+  originalText           String           @map("original_text")
+  preferredExperienceIds Json             @map("preferred_experience_ids_json")
+  emphasis               Json             @map("emphasis_json")
+  status                 EsDocumentStatus @default(DRAFT)
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
 
-  company   Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company   Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
   analyses  EsAnalysis[]
   revisions EsRevision[]
 
@@ -400,16 +448,18 @@ model EsDocument {
 }
 
 model EsAnalysis {
-  id                   String           @id @default(uuid())
-  esDocumentId         String           @map("es_document_id")
-  revisionId           String?          @map("revision_id")
-  sourceKind           EsSourceKind     @map("source_kind")
-  freshness            ResultFreshness
-  characterCount       Int              @map("character_count")
-  withinCharacterLimit Boolean          @map("within_character_limit")
-  questionCoverage     QuestionCoverage @map("question_coverage")
-  issues               Json             @map("issues_json")
-  createdAt            DateTime         @default(now()) @map("created_at")
+  id                    String              @id @default(uuid())
+  esDocumentId          String              @map("es_document_id")
+  revisionId            String?             @map("revision_id")
+  sourceKind            EsSourceKind        @map("source_kind")
+  freshness             ResultFreshness
+  characterCount        Int                 @map("character_count")
+  withinCharacterLimit  Boolean             @map("within_character_limit")
+  questionCoverage      QuestionCoverage    @map("question_coverage")
+  submissionReadiness   SubmissionReadiness @map("submission_readiness")
+  issues                Json                @map("issues_json")
+  comments              Json                @map("comments_json")
+  createdAt             DateTime            @default(now()) @map("created_at")
 
   document             EsDocument   @relation(fields: [esDocumentId], references: [id], onDelete: Cascade)
   revision             EsRevision?  @relation("AnalysisOfRevision", fields: [revisionId], references: [id], onDelete: SetNull)
@@ -429,6 +479,8 @@ model EsClaim {
   claimType    ClaimType   @map("claim_type")
   status       ClaimStatus
   explanation  String?
+  startOffset  Int?        @map("start_offset")
+  endOffset    Int?        @map("end_offset")
   createdAt    DateTime    @default(now()) @map("created_at")
 
   analysis EsAnalysis        @relation(fields: [esAnalysisId], references: [id], onDelete: Cascade)
@@ -458,6 +510,8 @@ model EsRevision {
   basedOnAnalysisId      String          @map("based_on_analysis_id")
   freshness              ResultFreshness
   revisedText            String          @map("revised_text")
+  usedExperienceIds      Json            @map("used_experience_ids_json")
+  usedSessionReportIds   Json            @map("used_session_report_ids_json")
   characterCount         Int             @map("character_count")
   verificationAnalysisId String?         @unique @map("verification_analysis_id")
   createdAt              DateTime        @default(now()) @map("created_at")
@@ -491,7 +545,7 @@ model RevisionChange {
 
 model RecommendationRun {
   id                     String                  @id @default(uuid())
-  careerReportId         String                  @map("career_report_id")
+  selfAnalysisReportId   String                  @map("self_analysis_report_id")
   status                 RecommendationRunStatus @default(QUEUED)
   candidateCompanyIds    Json                    @map("candidate_company_ids_json")
   targetRoles            Json                    @map("target_roles_json")
@@ -508,7 +562,7 @@ model RecommendationRun {
   updatedAt              DateTime                @updatedAt @map("updated_at")
 
   recommendations CompanyRecommendation[]
-  careerReport    CareerReport            @relation(fields: [careerReportId], references: [id], onDelete: Restrict)
+  selfAnalysisReport SelfAnalysisReport     @relation(fields: [selfAnalysisReportId], references: [id], onDelete: Restrict)
 
   @@index([createdAt])
   @@map("recommendation_runs")
