@@ -10,7 +10,9 @@ datasource db {
 enum AnalysisSessionStatus {
   ACTIVE
   READY_TO_FINALIZE
+  ANALYZING
   COMPLETED
+  FAILED
   ABANDONED
 }
 

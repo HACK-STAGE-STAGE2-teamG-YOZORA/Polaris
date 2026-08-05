@@ -1314,7 +1314,7 @@ components:
 
     AnalysisSessionStatus:
       type: string
-      enum: [ACTIVE, READY_TO_FINALIZE, COMPLETED, ABANDONED]
+      enum: [ACTIVE, READY_TO_FINALIZE, ANALYZING, COMPLETED, FAILED, ABANDONED]
 
     AnalysisSession:
       type: object

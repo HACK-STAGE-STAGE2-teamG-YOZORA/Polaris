@@ -1,4 +1,10 @@
-export type AnalysisSessionStatus = 'ACTIVE' | 'READY_TO_FINALIZE' | 'COMPLETED' | 'ABANDONED';
+export type AnalysisSessionStatus =
+  | 'ACTIVE'
+  | 'READY_TO_FINALIZE'
+  | 'ANALYZING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'ABANDONED';
 
 export type SelfAnalysisAxis =
   | 'ENERGY_SOURCE'

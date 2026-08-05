@@ -28,6 +28,8 @@ export interface SendMessageRequest {
 export interface UpdateAnalysisSessionStatusRequest {
   status: AnalysisSessionStatus;
   title?: string;
+  /** FAILED 遷移時にサーバーログへ記録するエラー理由（任意）。レスポンスには含まれない。 */
+  failureReason?: string;
 }
 
 export interface ChatMessageResponse {

@@ -2,7 +2,24 @@ import { prisma } from '../../../../../../lib/prisma.ts';
 import type { UpdateAnalysisSessionStatusRequest } from '../../../../../../types/session.ts';
 import type { AnalysisSessionStatus, SelfAnalysisAxis } from '../../../../../../types/dashboard.ts';
 
-const VALID_STATUSES: AnalysisSessionStatus[] = ['ACTIVE', 'READY_TO_FINALIZE', 'COMPLETED', 'ABANDONED'];
+const VALID_STATUSES: AnalysisSessionStatus[] = [
+  'ACTIVE',
+  'READY_TO_FINALIZE',
+  'ANALYZING',
+  'COMPLETED',
+  'FAILED',
+  'ABANDONED',
+];
+
+// ステータス遷移の整合性検証テーブル
+const ALLOWED_TRANSITIONS: Record<AnalysisSessionStatus, AnalysisSessionStatus[]> = {
+  ACTIVE: ['READY_TO_FINALIZE', 'ANALYZING', 'ABANDONED'],
+  READY_TO_FINALIZE: ['ACTIVE', 'ANALYZING', 'ABANDONED'],
+  ANALYZING: ['COMPLETED', 'FAILED', 'ACTIVE'], // 失敗時はFAILEDまたは再開用のACTIVEへ戻せる
+  COMPLETED: [], // 完了後は遷移不可
+  FAILED: ['ACTIVE', 'ANALYZING', 'ABANDONED'], // 失敗からの再試行(ANALYZING)またはACTIVE復帰
+  ABANDONED: ['ACTIVE'],
+};
 
 export async function PATCH(
   request: Request,
@@ -36,11 +53,33 @@ export async function PATCH(
       );
     }
 
+    const currentStatus = existingSession.status as AnalysisSessionStatus;
     const newStatus = body.status as AnalysisSessionStatus;
+
+    // 同じステータスへの更新はスキップして正常返却
+    if (currentStatus !== newStatus) {
+      const allowedNextStatuses = ALLOWED_TRANSITIONS[currentStatus] || [];
+      if (!allowedNextStatuses.includes(newStatus)) {
+        return Response.json(
+          {
+            code: 'CONFLICT',
+            message: `現在のステータス (${currentStatus}) から ${newStatus} への遷移は許可されていません。`,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    // FAILED 遷移時のエラーログ出力処理
+    if (newStatus === 'FAILED' && body.failureReason) {
+      console.error(`[Session ${sessionId}] Status updated to FAILED. Reason: ${body.failureReason}`);
+    }
+
+    // completedAtの管理: COMPLETED遷移時は現在時刻、それ以外（再開等）でクリアまたは既存値保持
     const completedAt =
       newStatus === 'COMPLETED'
         ? new Date()
-        : newStatus === 'ACTIVE' || newStatus === 'READY_TO_FINALIZE'
+        : newStatus === 'ACTIVE' || newStatus === 'READY_TO_FINALIZE' || newStatus === 'ANALYZING'
         ? null
         : existingSession.completedAt;
 
