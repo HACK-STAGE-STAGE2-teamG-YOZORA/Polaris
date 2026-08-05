@@ -1,4 +1,4 @@
-import { GET } from '../src/app/api/v1/dashboard/route.js';
+import { GET } from '@/app/api/v1/dashboard/route';
 
 async function main() {
   console.log('--- Testing GET /api/v1/dashboard ---');

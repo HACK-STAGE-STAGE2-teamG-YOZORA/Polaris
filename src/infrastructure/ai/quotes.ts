@@ -1,7 +1,7 @@
 import type {
   ConversationMessage,
   ExperienceQuote,
-} from "./types.ts";
+} from "./types";
 
 export function recoverExactQuote(
   source: string,

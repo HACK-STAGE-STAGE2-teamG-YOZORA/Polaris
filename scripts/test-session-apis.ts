@@ -1,6 +1,6 @@
-import { POST as createSession } from '../src/app/api/v1/analysis-sessions/route.ts';
-import { POST as saveMessage } from '../src/app/api/v1/analysis-sessions/[sessionId]/messages/route.ts';
-import { PATCH as updateStatus } from '../src/app/api/v1/analysis-sessions/[sessionId]/status/route.ts';
+import { POST as createSession } from '@/app/api/v1/analysis-sessions/route';
+import { POST as saveMessage } from '@/app/api/v1/analysis-sessions/[sessionId]/messages/route';
+import { PATCH as updateStatus } from '@/app/api/v1/analysis-sessions/[sessionId]/status/route';
 
 async function test() {
   console.log('=== Testing Session Management APIs ===');

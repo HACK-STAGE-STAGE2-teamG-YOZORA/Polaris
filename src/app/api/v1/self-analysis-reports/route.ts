@@ -1,13 +1,13 @@
-import { prisma } from '../../../../lib/prisma.js';
+import { prisma } from '@/lib/prisma';
 
 const VALID_AXIS_TYPES = [
-  'FOCUS_CONNECT',
-  'PLAN_EXPERIMENT',
-  'MASTERY_IMPACT',
-  'STABLE_DYNAMIC',
+  'ENERGY_SOURCE',
+  'ACTION_STYLE',
+  'SATISFACTION_SOURCE',
+  'PREFERRED_ENVIRONMENT',
 ] as const;
 
-type AxisType = typeof VALID_AXIS_TYPES[number];
+type AxisType = (typeof VALID_AXIS_TYPES)[number];
 
 interface AxisDetailInput {
   axisType: string;
@@ -52,7 +52,7 @@ function validateAxisDetail(detail: unknown, index: number): string | null {
   return null;
 }
 
-function formatAxisDetail(d: Record<string, unknown>) {
+export function formatAxisDetail(d: Record<string, unknown>) {
   return {
     id: d.id,
     axisType: d.axisType,
@@ -71,7 +71,7 @@ function formatAxisDetail(d: Record<string, unknown>) {
   };
 }
 
-function formatReport(report: Record<string, unknown>) {
+export function formatReport(report: Record<string, unknown>) {
   return {
     id: report.id,
     isOutdated: report.isOutdated ?? false,
@@ -84,12 +84,11 @@ function formatReport(report: Record<string, unknown>) {
   };
 }
 
-// POST /api/v1/career-reports
+// POST /api/v1/self-analysis-reports
 export async function POST(request: Request): Promise<Response> {
   try {
     const body = await request.json();
 
-    // axisDetails validation
     if (!Array.isArray(body.axisDetails) || body.axisDetails.length !== 4) {
       return Response.json(
         {
@@ -101,7 +100,6 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // Validate unique axis types
     const axisTypes = body.axisDetails.map((d: Record<string, unknown>) => d.axisType);
     const uniqueTypes = new Set(axisTypes);
     if (uniqueTypes.size !== 4 || VALID_AXIS_TYPES.some((t) => !uniqueTypes.has(t))) {
@@ -115,7 +113,6 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // Validate each axis detail
     for (let i = 0; i < body.axisDetails.length; i++) {
       const err = validateAxisDetail(body.axisDetails[i], i);
       if (err) {
@@ -128,12 +125,12 @@ export async function POST(request: Request): Promise<Response> {
 
     const axisDetailsInput: AxisDetailInput[] = body.axisDetails;
 
-    const created = await prisma.careerReport.create({
+    const created = await prisma.selfAnalysisAxisReport.create({
       data: {
         isOutdated: false,
         axisDetails: {
           create: axisDetailsInput.map((d) => ({
-            axisType: d.axisType,
+            axisType: d.axisType as any,
             currentTendency: d.currentTendency,
             userComment: d.userComment,
             leftEvidence: d.leftEvidence,
@@ -142,34 +139,41 @@ export async function POST(request: Request): Promise<Response> {
             counterExample: d.counterExample ?? null,
             evidenceExperienceIds: d.evidenceExperienceIds ?? [],
             evidenceUtteranceIds: d.evidenceUtteranceIds ?? [],
-            userEvaluation: d.userEvaluation ?? 'UNREVIEWED',
+            userEvaluation: (d.userEvaluation as any) ?? 'UNREVIEWED',
           })),
         },
+      },
+      include: {
+        axisDetails: true,
       },
     });
 
     return Response.json(formatReport(created), { status: 201 });
   } catch (error) {
-    console.error('Error creating career report:', error);
+    console.error('Error creating self-analysis report:', error);
     return Response.json(
-      { code: 'INTERNAL_ERROR', message: 'キャリアレポートの保存中にエラーが発生しました。' },
+      { code: 'INTERNAL_ERROR', message: '自己分析レポートの保存中にエラーが発生しました。' },
       { status: 500 }
     );
   }
 }
 
-// GET /api/v1/career-reports
+// GET /api/v1/self-analysis-reports
 export async function GET(_request: Request): Promise<Response> {
   try {
-    const reports = await prisma.careerReport.findMany();
+    const reports = await prisma.selfAnalysisAxisReport.findMany({
+      include: {
+        axisDetails: true,
+      },
+    });
     return Response.json(
       { items: reports.map(formatReport) },
       { status: 200 }
     );
   } catch (error) {
-    console.error('Error fetching career reports:', error);
+    console.error('Error fetching self-analysis reports:', error);
     return Response.json(
-      { code: 'INTERNAL_ERROR', message: 'キャリアレポート一覧の取得中にエラーが発生しました。' },
+      { code: 'INTERNAL_ERROR', message: '自己分析レポート一覧の取得中にエラーが発生しました。' },
       { status: 500 }
     );
   }

@@ -1,4 +1,4 @@
-import { prisma } from '../../../../lib/prisma.js';
+import { prisma } from '@/lib/prisma';
 import type {
   AnalysisSessionStatus,
   AnalysisSessionResponse,
@@ -9,7 +9,7 @@ import type {
   OverallSelfAnalysisProfileResponse,
   ResultFreshness,
   SelfAnalysisAxis,
-} from '../../../../types/dashboard.js';
+} from '@/types/dashboard';
 
 export async function GET(): Promise<Response> {
   try {

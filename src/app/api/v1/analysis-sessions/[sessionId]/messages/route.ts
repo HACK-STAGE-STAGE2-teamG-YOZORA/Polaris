@@ -1,5 +1,5 @@
-import { prisma } from '../../../../../../lib/prisma.ts';
-import type { SendMessageRequest, ChatMessageResponse } from '../../../../../../types/session.ts';
+import { prisma } from '@/lib/prisma';
+import type { SendMessageRequest, ChatMessageResponse } from '@/types/session';
 
 export async function POST(
   request: Request,

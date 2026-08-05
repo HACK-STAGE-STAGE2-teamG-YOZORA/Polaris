@@ -1,6 +1,6 @@
-import { prisma } from '../../../../../lib/prisma.js';
-import type { SelfAnalysisAxis } from '../../../../../types/dashboard.js';
-export { PATCH } from './status/route.js';
+import { prisma } from '@/lib/prisma';
+import type { SelfAnalysisAxis } from '@/types/dashboard';
+export { PATCH } from './status/route';
 
 export async function GET(
   request: Request,

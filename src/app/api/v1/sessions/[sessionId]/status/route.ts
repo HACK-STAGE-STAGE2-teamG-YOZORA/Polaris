@@ -1,1 +1,1 @@
-export { PATCH } from '../../../analysis-sessions/[sessionId]/status/route.js';
+export { PATCH } from '../../../analysis-sessions/[sessionId]/status/route';

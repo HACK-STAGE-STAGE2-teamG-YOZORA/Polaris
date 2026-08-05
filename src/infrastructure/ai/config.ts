@@ -1,4 +1,4 @@
-import type { PolarisAiConfig } from "./types.ts";
+import type { PolarisAiConfig } from "./types";
 
 function readNumber(name: string, fallback: number): number {
   const raw = process.env[name];

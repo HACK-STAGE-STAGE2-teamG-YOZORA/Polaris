@@ -1,6 +1,6 @@
-import { prisma } from '../../../../../../lib/prisma.ts';
-import type { UpdateAnalysisSessionStatusRequest } from '../../../../../../types/session.ts';
-import type { AnalysisSessionStatus, SelfAnalysisAxis } from '../../../../../../types/dashboard.ts';
+import { prisma } from '@/lib/prisma';
+import type { UpdateAnalysisSessionStatusRequest } from '@/types/session';
+import type { AnalysisSessionStatus, SelfAnalysisAxis } from '@/types/dashboard';
 
 const VALID_STATUSES: AnalysisSessionStatus[] = [
   'ACTIVE',

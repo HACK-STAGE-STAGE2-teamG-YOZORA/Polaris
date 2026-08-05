@@ -4,10 +4,10 @@
  *   作成（DRAFT）→ 一覧取得 → 更新（CONFIRMED）→ STALE 化連動確認
  */
 
-import { POST as createSession } from '../src/app/api/v1/analysis-sessions/route.ts';
-import { POST as createExperience, GET as listExperiences } from '../src/app/api/v1/experiences/route.ts';
-import { PATCH as updateExperience } from '../src/app/api/v1/experiences/[experienceId]/route.ts';
-import { POST as createAssessment } from '../src/app/api/v1/analysis-sessions/[sessionId]/axis-assessments/route.ts';
+import { POST as createSession } from '@/app/api/v1/analysis-sessions/route';
+import { POST as createExperience, GET as listExperiences } from '@/app/api/v1/experiences/route';
+import { PATCH as updateExperience } from '@/app/api/v1/experiences/[experienceId]/route';
+import { POST as createAssessment } from '@/app/api/v1/analysis-sessions/[sessionId]/axis-assessments/route';
 
 async function test() {
   console.log('=== Testing Experience Card APIs ===\n');

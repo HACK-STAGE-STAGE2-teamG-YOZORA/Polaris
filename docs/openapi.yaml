@@ -34,8 +34,6 @@ tags:
     description: ユーザーが確認する経験カード
   - name: Axis Assessments
     description: Focus↔Connect、Plan↔Experiment、Mastery↔Impact、Stable↔Dynamicの4軸分析
-  - name: Career Reports
-    description: AIが生成した新4軸自己分析スナップショットの保存と取得
   - name: Companies
     description: 応募企業と根拠付き企業情報
   - name: Recommendations
@@ -501,58 +499,6 @@ paths:
     get:
       tags: [Self Analysis]
       operationId: listSelfAnalysisReports
-      x-priority: P1
-      summary: 最新を含む自己分析レポート履歴を取得する
-      description: ホームでは使用しない。将来の履歴画面またはデバッグ用。
-      parameters:
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
-      responses:
-        '200':
-          description: レポート履歴
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SelfAnalysisReportPage'
-
-  /api/v1/self-analysis-reports/latest:
-    get:
-      tags: [Self Analysis]
-      operationId: getLatestSelfAnalysisReport
-      x-priority: P1
-      summary: 最新の自己分析レポートを取得する
-      description: ホームでは使用せず、将来の履歴機能向けに保持する。
-      responses:
-        '200':
-          description: 最新レポート
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SelfAnalysisReport'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/v1/self-analysis-reports/{reportId}:
-    parameters:
-      - $ref: '#/components/parameters/ReportId'
-    get:
-      tags: [Self Analysis]
-      operationId: getSelfAnalysisReport
-      summary: 指定した自己分析レポートを取得する
-      responses:
-        '200':
-          description: 自己分析レポート
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SelfAnalysisReport'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/v1/career-reports:
-    get:
-      tags: [Career Reports]
-      operationId: listCareerReports
       summary: 過去の分析スナップショット一覧を取得する
       description: 作成日時の降順で全件返す。スナップショットは上書きされず追加される設計のため全履歴が保持される。
       responses:
@@ -567,40 +513,55 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: '#/components/schemas/CareerReport'
+                      $ref: '#/components/schemas/SelfAnalysisAxisReport'
         '500':
           $ref: '#/components/responses/InternalError'
     post:
-      tags: [Career Reports]
-      operationId: createCareerReport
+      tags: [Self Analysis]
+      operationId: createSelfAnalysisReport
       summary: AIが生成した4軸自己分析結果をスナップショットとして保存する
       description: |
-        新4軸（Focus↔Connect, Plan↔Experiment, Mastery↔Impact, Stable↔Dynamic）すべてを含む
+        4軸（ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT）すべてを含む
         JSONを受け取り、DBに追記する。既存スナップショットは変更しない。
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateCareerReportRequest'
+              $ref: '#/components/schemas/CreateSelfAnalysisAxisReportRequest'
       responses:
         '201':
           description: 作成したスナップショット
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CareerReport'
+                $ref: '#/components/schemas/SelfAnalysisAxisReport'
         '422':
           $ref: '#/components/responses/ValidationError'
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /api/v1/career-reports/{reportId}:
+  /api/v1/self-analysis-reports/latest:
+    get:
+      tags: [Self Analysis]
+      operationId: getLatestSelfAnalysisReport
+      summary: 最新の自己分析スナップショットを取得する
+      responses:
+        '200':
+          description: 最新スナップショット
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfAnalysisAxisReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/self-analysis-reports/{reportId}:
     parameters:
       - $ref: '#/components/parameters/ReportId'
     get:
-      tags: [Career Reports]
-      operationId: getCareerReport
+      tags: [Self Analysis]
+      operationId: getSelfAnalysisReport
       summary: 指定した分析スナップショットの詳細を取得する
       responses:
         '200':
@@ -608,7 +569,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CareerReport'
+                $ref: '#/components/schemas/SelfAnalysisAxisReport'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -3049,21 +3010,21 @@ components:
           items:
             $ref: '#/components/schemas/ErrorDetail'
 
-    CareerReportAxisType:
+    SelfAnalysisReportAxisType:
       type: string
-      enum: [FOCUS_CONNECT, PLAN_EXPERIMENT, MASTERY_IMPACT, STABLE_DYNAMIC]
+      enum: [ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT]
       description: |
-        新4軸の識別子。
-        - FOCUS_CONNECT: Focus（集中）↔ Connect（つながり）
-        - PLAN_EXPERIMENT: Plan（計画）↔ Experiment（実験）
-        - MASTERY_IMPACT: Mastery（熟達）↔ Impact（インパクト）
-        - STABLE_DYNAMIC: Stable（安定）↔ Dynamic（変化）
+        4軸の識別子。
+        - ENERGY_SOURCE: Focus（集中）↔ Connect（つながり）
+        - ACTION_STYLE: Plan（計画）↔ Experiment（実験）
+        - SATISFACTION_SOURCE: Mastery（熟達）↔ Impact（インパクト）
+        - PREFERRED_ENVIRONMENT: Stable（安定）↔ Dynamic（変化）
 
-    CareerReportUserEvaluation:
+    SelfAnalysisReportUserEvaluation:
       type: string
       enum: [UNREVIEWED, MATCHES, PARTIALLY_MATCHES, DOES_NOT_MATCH, NEEDS_EXPLORATION]
 
-    CareerReportAxisDetail:
+    SelfAnalysisAxisReportDetail:
       type: object
       required:
         - id
@@ -3081,7 +3042,7 @@ components:
           type: string
           format: uuid
         axisType:
-          $ref: '#/components/schemas/CareerReportAxisType'
+          $ref: '#/components/schemas/SelfAnalysisReportAxisType'
         currentTendency:
           type: string
           minLength: 1
@@ -3119,12 +3080,12 @@ components:
             type: string
             format: uuid
         userEvaluation:
-          $ref: '#/components/schemas/CareerReportUserEvaluation'
+          $ref: '#/components/schemas/SelfAnalysisReportUserEvaluation'
         createdAt:
           type: string
           format: date-time
 
-    CareerReport:
+    SelfAnalysisAxisReport:
       type: object
       required:
         - id
@@ -3145,11 +3106,11 @@ components:
           type: array
           minItems: 4
           maxItems: 4
-          description: 新4軸の評価詳細
+          description: 4軸の評価詳細
           items:
-            $ref: '#/components/schemas/CareerReportAxisDetail'
+            $ref: '#/components/schemas/SelfAnalysisAxisReportDetail'
 
-    CreateCareerReportAxisDetailRequest:
+    CreateSelfAnalysisAxisReportDetailRequest:
       type: object
       required:
         - axisType
@@ -3159,7 +3120,7 @@ components:
         - rightEvidence
       properties:
         axisType:
-          $ref: '#/components/schemas/CareerReportAxisType'
+          $ref: '#/components/schemas/SelfAnalysisReportAxisType'
         currentTendency:
           type: string
           minLength: 1
@@ -3189,9 +3150,9 @@ components:
             type: string
             format: uuid
         userEvaluation:
-          $ref: '#/components/schemas/CareerReportUserEvaluation'
+          $ref: '#/components/schemas/SelfAnalysisReportUserEvaluation'
 
-    CreateCareerReportRequest:
+    CreateSelfAnalysisAxisReportRequest:
       type: object
       required: [axisDetails]
       properties:
@@ -3199,6 +3160,6 @@ components:
           type: array
           minItems: 4
           maxItems: 4
-          description: 新4軸すべてを1件ずつ含める必要がある
+          description: 4軸すべてを1件ずつ含める必要がある
           items:
-            $ref: '#/components/schemas/CreateCareerReportAxisDetailRequest'
+            $ref: '#/components/schemas/CreateSelfAnalysisAxisReportDetailRequest'

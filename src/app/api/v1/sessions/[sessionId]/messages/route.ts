@@ -1,1 +1,1 @@
-export { POST } from '../../../analysis-sessions/[sessionId]/messages/route.js';
+export { POST } from '../../../analysis-sessions/[sessionId]/messages/route';

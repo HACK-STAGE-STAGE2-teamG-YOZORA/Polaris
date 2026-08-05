@@ -1,4 +1,4 @@
-import type { SelfAnalysisAxis } from './dashboard.ts';
+import type { SelfAnalysisAxis } from './dashboard';
 
 // ────────────────────────────────────────
 // Enum types

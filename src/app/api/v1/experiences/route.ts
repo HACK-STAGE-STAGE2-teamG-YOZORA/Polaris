@@ -1,9 +1,9 @@
-import { prisma } from '../../../../lib/prisma.ts';
+import { prisma } from '@/lib/prisma';
 import type {
   CreateExperienceRequest,
   ExperienceResponse,
   ExperienceListResponse,
-} from '../../../../types/experience.ts';
+} from '@/types/experience';
 
 // ────────────────────────────────────────
 // Helper: DB レコード → レスポンス形式
@@ -80,7 +80,7 @@ export async function POST(request: Request): Promise<Response> {
         positiveEmotion: body.positiveEmotion ?? null,
         negativeEmotion: body.negativeEmotion ?? null,
         energyChange: body.energyChange ?? 0,
-        environment: body.environment ?? {},
+        environment: (body.environment ?? {}) as any,
         status: 'DRAFT',
         isTarget: body.isTarget ?? true,
       },

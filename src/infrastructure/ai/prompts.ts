@@ -5,7 +5,7 @@ import type {
   ExperienceDraftInput,
   ExperienceDraftOutput,
   HypothesesInput,
-} from "./types.ts";
+} from "./types";
 
 const sharedSafetyRules = `
 共通ルール:

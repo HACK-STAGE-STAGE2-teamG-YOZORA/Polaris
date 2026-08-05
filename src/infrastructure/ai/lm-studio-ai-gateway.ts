@@ -1,5 +1,5 @@
 import { Chat, LMStudioClient } from "@lmstudio/sdk";
-import { loadPolarisAiConfig } from "./config.ts";
+import { loadPolarisAiConfig } from "./config";
 import {
   buildChatTurnPrompt,
   buildExperienceDraftPrompt,
@@ -7,13 +7,13 @@ import {
   buildEsAnalysisPrompt,
   buildEsRevisionPrompt,
   buildHypothesesPrompt,
-} from "./prompts.ts";
+} from "./prompts";
 import {
   filterAndRecoverMessageQuotes,
   recoverExactQuote,
   verifyAndRecoverMessageQuotes,
-} from "./quotes.ts";
-import { loadAiSchema } from "./schema.ts";
+} from "./quotes";
+import { loadAiSchema } from "./schema";
 import type {
   ChatTurnInput,
   ChatTurnOutput,
@@ -28,7 +28,7 @@ import type {
   HypothesesInput,
   HypothesesOutput,
   PolarisAiConfig,
-} from "./types.ts";
+} from "./types";
 
 type StructuredTaskOptions<T> = {
   schemaFileName: string;

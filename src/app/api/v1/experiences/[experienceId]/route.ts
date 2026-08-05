@@ -1,11 +1,11 @@
-import { prisma } from '../../../../../lib/prisma.ts';
+import { prisma } from '@/lib/prisma';
 import type {
   UpdateExperienceRequest,
   ExperienceResponse,
   StaleAssessmentInfo,
   UpdateExperienceResponse,
-} from '../../../../../types/experience.ts';
-import type { SelfAnalysisAxis } from '../../../../../types/dashboard.ts';
+} from '@/types/experience';
+import type { SelfAnalysisAxis } from '@/types/dashboard';
 
 // ────────────────────────────────────────
 // Helper

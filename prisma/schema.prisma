@@ -135,14 +135,7 @@ enum ResultFreshness {
   STALE
 }
 
-enum CareerReportAxisType {
-  FOCUS_CONNECT
-  PLAN_EXPERIMENT
-  MASTERY_IMPACT
-  STABLE_DYNAMIC
-}
-
-enum CareerReportUserEvaluation {
+enum SelfAnalysisReportUserEvaluation {
   UNREVIEWED
   MATCHES
   PARTIALLY_MATCHES
@@ -614,35 +607,35 @@ model CompanyRecommendation {
   @@map("company_recommendations")
 }
 
-model CareerReport {
+model SelfAnalysisAxisReport {
   id         String   @id @default(uuid())
   isOutdated Boolean  @default(false) @map("is_outdated")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  axisDetails CareerReportAxisDetail[]
+  axisDetails SelfAnalysisAxisReportDetail[]
 
   @@index([createdAt])
-  @@map("career_reports")
+  @@map("self_analysis_axis_reports")
 }
 
-model CareerReportAxisDetail {
-  id                     String                      @id @default(uuid())
-  reportId               String                      @map("report_id")
-  axisType               CareerReportAxisType         @map("axis_type")
-  currentTendency        String                      @map("current_tendency")
-  userComment            String                      @map("user_comment")
-  leftEvidence           String                      @map("left_evidence")
-  rightEvidence          String                      @map("right_evidence")
-  contextDifference      String?                     @map("context_difference")
-  counterExample         String?                     @map("counter_example")
-  evidenceExperienceIds  Json                        @map("evidence_experience_ids_json")
-  evidenceUtteranceIds   Json                        @map("evidence_utterance_ids_json")
-  userEvaluation         CareerReportUserEvaluation  @default(UNREVIEWED) @map("user_evaluation")
-  createdAt              DateTime                    @default(now()) @map("created_at")
+model SelfAnalysisAxisReportDetail {
+  id                     String                           @id @default(uuid())
+  reportId               String                           @map("report_id")
+  axisType               SelfAnalysisAxis                 @map("axis_type")
+  currentTendency        String                           @map("current_tendency")
+  userComment            String                           @map("user_comment")
+  leftEvidence           String                           @map("left_evidence")
+  rightEvidence          String                           @map("right_evidence")
+  contextDifference      String?                          @map("context_difference")
+  counterExample         String?                          @map("counter_example")
+  evidenceExperienceIds  Json                             @map("evidence_experience_ids_json")
+  evidenceUtteranceIds   Json                             @map("evidence_utterance_ids_json")
+  userEvaluation         SelfAnalysisReportUserEvaluation @default(UNREVIEWED) @map("user_evaluation")
+  createdAt              DateTime                         @default(now()) @map("created_at")
 
-  report CareerReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  report SelfAnalysisAxisReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
   @@unique([reportId, axisType])
   @@index([reportId])
-  @@map("career_report_axis_details")
+  @@map("self_analysis_axis_report_details")
 }
