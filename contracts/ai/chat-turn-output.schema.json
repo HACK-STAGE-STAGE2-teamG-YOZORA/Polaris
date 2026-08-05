@@ -7,9 +7,10 @@
   "required": [
     "reply",
     "evidenceCandidates",
-    "missingAreas",
+    "missingAxes",
     "nextQuestionTarget",
-    "experienceReady"
+    "experienceReady",
+    "completionIntent"
   ],
   "properties": {
     "reply": {
@@ -25,7 +26,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "category",
+          "axis",
+          "pole",
           "statement",
           "supportType",
           "messageId",
@@ -33,7 +35,8 @@
           "interpretation"
         ],
         "properties": {
-          "category": { "$ref": "common.schema.json#/$defs/hypothesisCategory" },
+          "axis": { "$ref": "common.schema.json#/$defs/selfAnalysisAxis" },
+          "pole": { "$ref": "common.schema.json#/$defs/axisPole" },
           "statement": { "type": "string", "minLength": 1, "maxLength": 1000 },
           "supportType": { "$ref": "common.schema.json#/$defs/evidenceSupportType" },
           "messageId": { "type": "string", "format": "uuid" },
@@ -42,24 +45,28 @@
         }
       }
     },
-    "missingAreas": {
+    "missingAxes": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "$ref": "common.schema.json#/$defs/hypothesisCategory" }
+      "items": { "$ref": "common.schema.json#/$defs/selfAnalysisAxis" }
     },
     "nextQuestionTarget": {
       "type": "string",
       "enum": [
-        "CAN",
-        "WANT",
-        "ENERGY",
-        "CONTEXT",
+        "ENERGY_SOURCE",
+        "ACTION_STYLE",
+        "SATISFACTION_SOURCE",
+        "PREFERRED_ENVIRONMENT",
         "EXPERIENCE_DETAIL",
         "CONTRADICTION",
         "CONFIRMATION"
       ]
     },
-    "experienceReady": { "type": "boolean" }
+    "experienceReady": { "type": "boolean" },
+    "completionIntent": {
+      "type": "string",
+      "enum": ["NONE", "SUGGESTED"],
+      "description": "終了候補の検出結果。SUGGESTEDでも自動終了せず本人確認を必要とする。"
+    }
   }
 }
-

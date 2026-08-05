@@ -4,9 +4,25 @@
   "title": "ES revision output",
   "type": "object",
   "additionalProperties": false,
-  "required": ["revisedText", "changes", "questionsForUser"],
+  "required": [
+    "revisedText",
+    "usedExperienceIds",
+    "usedSessionReportIds",
+    "changes",
+    "questionsForUser"
+  ],
   "properties": {
     "revisedText": { "type": "string", "minLength": 1, "maxLength": 20000 },
+    "usedExperienceIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "format": "uuid" }
+    },
+    "usedSessionReportIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "format": "uuid" }
+    },
     "changes": {
       "type": "array",
       "maxItems": 100,
@@ -32,4 +48,3 @@
     }
   }
 }
-

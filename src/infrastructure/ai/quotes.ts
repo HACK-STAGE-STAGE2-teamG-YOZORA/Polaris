@@ -1,7 +1,7 @@
 import type {
   ConversationMessage,
   ExperienceQuote,
-} from "./types.ts";
+} from "./types";
 
 export function recoverExactQuote(
   source: string,
@@ -53,4 +53,22 @@ export function verifyAndRecoverMessageQuotes(
 
     evidence.quote = exactQuote;
   }
+}
+
+/**
+ * チャットの根拠候補は補助情報なので、不正な引用だけを破棄する。
+ * 経験カードなど保存対象の検証では使用せず、厳格な関数を使うこと。
+ */
+export function filterAndRecoverMessageQuotes<T extends ExperienceQuote>(
+  quotes: T[],
+  messages: ConversationMessage[],
+): T[] {
+  return quotes.filter((quote) => {
+    try {
+      verifyAndRecoverMessageQuotes([quote], messages);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }

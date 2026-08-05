@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { LmStudioPolarisAiGateway } from "../src/infrastructure/ai/lm-studio-ai-gateway.ts";
+import {
+  LmStudioPolarisAiGateway,
+  PolarisAiError,
+} from "@/infrastructure/ai/lm-studio-ai-gateway";
 import type {
   ConversationMessage,
   ExperienceType,
   HypothesisCategory,
-} from "../src/infrastructure/ai/types.ts";
+} from "@/infrastructure/ai/types";
 
 const experienceTypes: Array<{
   value: ExperienceType;
@@ -36,6 +39,19 @@ function printExperienceTypeMenu(): void {
   }
 }
 
+function printRecoverableError(error: unknown, operation: string): void {
+  if (error instanceof PolarisAiError) {
+    console.log(`\nAI: ${operation}に失敗しました。`);
+    console.log(`理由: ${error.message}`);
+  } else {
+    console.log(`\nAI: ${operation}中に予期しないエラーが発生しました。`);
+  }
+
+  console.log(
+    "会話内容は保持されています。/retryで再試行、/cardで現在の経験カード作成、/quitで終了できます。\n",
+  );
+}
+
 try {
   console.log("\nPolaris 自己分析AI（開発用CLI）");
   console.log("話した内容は、この実行中だけメモリに保持します。\n");
@@ -54,7 +70,9 @@ try {
   console.log(
     "\n印象に残っている出来事を、まずは自由に話してください。",
   );
-  console.log("経験カードを作る: /card　終了: /quit\n");
+  console.log(
+    "経験カードを作る: /card　直前のAI応答を再試行: /retry　終了: /quit\n",
+  );
 
   const sessionId = randomUUID();
   const messages: ConversationMessage[] = [];
@@ -81,38 +99,58 @@ try {
         );
       }
 
-      const draft = await ai.extractExperience({
-        requestedType,
+      try {
+        const draft = await ai.extractExperience({
+          requestedType,
+          messages,
+        });
+
+        console.log("\n--- 経験カード案（本人確認前） ---");
+        console.log(JSON.stringify(draft, null, 2));
+        console.log(
+          "\nこの内容はDRAFTです。画面実装後は本人が修正・確認してから分析に使います。\n",
+        );
+      } catch (error) {
+        printRecoverableError(error, "経験カードの生成");
+      }
+      continue;
+    }
+
+    if (command === "/retry") {
+      if (messages.at(-1)?.role !== "USER") {
+        console.log(
+          "AI: 再試行できる未回答のユーザーメッセージがありません。\n",
+        );
+        continue;
+      }
+    } else {
+      if (answer.trim() === "") {
+        continue;
+      }
+
+      messages.push({
+        id: randomUUID(),
+        role: "USER",
+        content: answer,
+      });
+    }
+
+    let turn;
+
+    try {
+      turn = await ai.createChatTurn({
+        session: {
+          id: sessionId,
+          focusAreas,
+          coveredExperienceTypes: [],
+          missingAreas,
+        },
         messages,
       });
-
-      console.log("\n--- 経験カード案（本人確認前） ---");
-      console.log(JSON.stringify(draft, null, 2));
-      console.log(
-        "\nこの内容はDRAFTです。画面実装後は本人が修正・確認してから分析に使います。\n",
-      );
+    } catch (error) {
+      printRecoverableError(error, "チャット応答の生成");
       continue;
     }
-
-    if (answer.trim() === "") {
-      continue;
-    }
-
-    messages.push({
-      id: randomUUID(),
-      role: "USER",
-      content: answer,
-    });
-
-    const turn = await ai.createChatTurn({
-      session: {
-        id: sessionId,
-        focusAreas,
-        coveredExperienceTypes: [],
-        missingAreas,
-      },
-      messages,
-    });
 
     messages.push({
       id: randomUUID(),

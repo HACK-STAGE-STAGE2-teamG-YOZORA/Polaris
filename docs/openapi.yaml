@@ -1,14 +1,19 @@
 openapi: 3.1.0
 info:
   title: Polaris API
-  version: 0.1.0
+  version: 0.3.0
   summary: 根拠付き自己分析とES推敲を行うローカルWebアプリのAPI契約
   description: |
     Polaris MVPのフロントエンドとバックエンド間の契約。
 
     - 単一ユーザー・localhost運用を前提とし、認証は行わない。
-    - AIが生成した経験・仮説は、ユーザーが確認するまで確定情報として扱わない。
+    - AIが生成した経験・4軸分析は、ユーザーが確認するまで確定情報として扱わない。
+    - 4軸は強制二択にせず、両方・状況依存・根拠不足を正式な結果として扱う。
+    - 完了チャット1件につき自己分析結果を1件保存し、ホームとESでは全完了セッションを再利用する。
+    - ホームは過去結果一覧ではなく、全履歴から再計算した4軸、強み、弱み・注意点を表示する。
+    - P0は単一デモユーザーとし、GoogleログインはP1で実装する。
     - ESの事実根拠には、確認済み経験と登録済み企業公式情報だけを使用する。
+    - `x-priority`がない操作はP0。`P1`・`P2`付き操作はP0完成後の拡張契約とする。
     - APIの日時はISO 8601 UTC、IDはUUID、JSONはUTF-8とする。
   contact:
     name: Polaris development team
@@ -21,12 +26,14 @@ security: []
 tags:
   - name: System
     description: アプリ、DB、LM Studioの稼働状態
+  - name: Dashboard
+    description: ホーム画面の進行中セッション、全履歴からの総合自己分析、ES要約
   - name: Self Analysis
-    description: 自己分析セッション、チャット、仮説生成
+    description: 自己分析セッション、チャット、セッション固有4軸、セッションレポート
   - name: Experiences
     description: ユーザーが確認する経験カード
-  - name: Hypotheses
-    description: CAN、WANT、ENERGY、CONTEXTのキャリア仮説
+  - name: Axis Assessments
+    description: Focus↔Connect、Plan↔Experiment、Mastery↔Impact、Stable↔Dynamicの4軸分析
   - name: Companies
     description: 応募企業と根拠付き企業情報
   - name: Recommendations
@@ -65,11 +72,75 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/dashboard:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboard
+      summary: ホーム画面に必要な状態をまとめて取得する
+      description: 進行中セッション、全履歴からの総合プロフィール、保存済みES要約を返す。過去セッション結果一覧は返さない。
+      responses:
+        '200':
+          description: ホーム表示用データ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/overall-self-analysis/recompute:
+    post:
+      tags: [Dashboard]
+      operationId: recomputeOverallSelfAnalysis
+      summary: 全完了セッションからホーム用総合プロフィールを再計算する
+      description: |
+        全セッションレポート、全確認済み経験、正式根拠、本人評価を再集計する。
+        セッションの軸位置を数値化して平均せず、全根拠から4軸、強み、弱み・注意点を生成する。
+        完了セッションが2件未満または確認済み経験が3件未満でも生成し、`isDataSparse=true`を返す。
+      responses:
+        '200':
+          description: 再計算した総合プロフィール
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverallSelfAnalysisProfile'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
   /api/v1/analysis-sessions:
+    get:
+      tags: [Self Analysis]
+      operationId: listAnalysisSessions
+      summary: 自己分析セッション一覧を取得する
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/AnalysisSessionStatus'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: セッション一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisSessionPage'
     post:
       tags: [Self Analysis]
       operationId: createAnalysisSession
       summary: 自己分析セッションを開始する
+      description: |
+        `START_NEW`は進行中セッションがある場合に409を返す。
+        `RESTART_ACTIVE`は進行中セッションをABANDONEDにしてから新規セッションを作る。
+        完了済みレポートと確認済み経験は削除しない。
+        過去の確認済み経験は新セッション固有の4軸分析へ含めないが、ホーム総合プロフィールとES生成には使用する。
       requestBody:
         required: true
         content:
@@ -85,8 +156,21 @@ paths:
                 $ref: '#/components/schemas/AnalysisSession'
         '422':
           $ref: '#/components/responses/ValidationError'
-        '503':
-          $ref: '#/components/responses/AiUnavailable'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/analysis-sessions/current:
+    get:
+      tags: [Self Analysis]
+      operationId: getCurrentAnalysisSession
+      summary: 「続きから」に使用する進行中セッションを取得する
+      responses:
+        '200':
+          description: 進行中セッション。存在しない場合は`session=null`。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentAnalysisSessionResponse'
 
   /api/v1/analysis-sessions/{sessionId}:
     parameters:
@@ -150,6 +234,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -182,22 +268,28 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
           $ref: '#/components/responses/AiTimeout'
 
-  /api/v1/analysis-sessions/{sessionId}/hypotheses/generate:
+  /api/v1/analysis-sessions/{sessionId}/axis-assessments/generate:
     parameters:
       - $ref: '#/components/parameters/SessionId'
     post:
       tags: [Self Analysis]
-      operationId: generateCareerHypotheses
-      summary: 確認済み経験からキャリア仮説を生成または更新する
-      description: 未確認の経験は根拠として使用しない。同内容の仮説は新規作成せず更新する。
+      operationId: generateAxisAssessments
+      summary: 対象チャットからセッション固有の独自4軸分析を生成または更新する
+      description: |
+        対象セッションで確認した経験だけを使い、未確認経験と過去セッションの経験は根拠として使用しない。
+        USERメッセージが1件以上あれば、確認済み経験が0件でも生成する。根拠がない軸はINSUFFICIENT_EVIDENCEとする。
+        各軸最大1件をセッション単位で更新する。
+        AI候補を検証し、最終positionとstatusはTypeScriptのドメイン規則で決定する。
       responses:
         '200':
-          description: 生成・更新した仮説
+          description: 生成・更新した4軸分析
           content:
             application/json:
               schema:
@@ -207,11 +299,13 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: '#/components/schemas/CareerHypothesis'
+                      $ref: '#/components/schemas/AxisAssessment'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -223,19 +317,25 @@ paths:
     post:
       tags: [Self Analysis]
       operationId: finalizeAnalysisSession
-      summary: 自己分析を完了し、キャリア仮説レポートを作成する
-      description: 確認済みの経験とユーザーが確認・修正した仮説だけを確定部分へ使用する。
+      summary: 自己分析を完了し、4軸の自己分析レポートを作成する
+      description: |
+        終了確認後に呼ぶ。USERメッセージ1件以上、4軸分析、4軸すべての本人評価を必要とする。
+        `UNREVIEWED`の軸が一つでもある場合は409を返す。
+        確認済み経験が0件でも完了できるが、根拠のない軸はINSUFFICIENT_EVIDENCEとする。
+        同一セッションへ作成できるレポートは1件だけである。
       responses:
         '200':
-          description: キャリア仮説レポート
+          description: 自己分析レポート
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CareerReport'
+                $ref: '#/components/schemas/SelfAnalysisReport'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -335,23 +435,28 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/hypotheses:
+  /api/v1/axis-assessments:
     get:
-      tags: [Hypotheses]
-      operationId: listCareerHypotheses
-      summary: キャリア仮説一覧を取得する
+      tags: [Axis Assessments]
+      operationId: listAxisAssessments
+      summary: 4軸分析一覧を取得する
       parameters:
-        - name: category
+        - name: axis
           in: query
           schema:
-            $ref: '#/components/schemas/HypothesisCategory'
+            $ref: '#/components/schemas/SelfAnalysisAxis'
+        - name: sessionId
+          in: query
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           schema:
-            $ref: '#/components/schemas/HypothesisStatus'
+            $ref: '#/components/schemas/AxisAssessmentStatus'
       responses:
         '200':
-          description: 仮説一覧
+          description: 4軸分析一覧
           content:
             application/json:
               schema:
@@ -361,28 +466,28 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: '#/components/schemas/CareerHypothesis'
+                      $ref: '#/components/schemas/AxisAssessment'
 
-  /api/v1/hypotheses/{hypothesisId}:
+  /api/v1/axis-assessments/{axisAssessmentId}:
     parameters:
-      - $ref: '#/components/parameters/HypothesisId'
+      - $ref: '#/components/parameters/AxisAssessmentId'
     patch:
-      tags: [Hypotheses]
-      operationId: reviewCareerHypothesis
-      summary: 仮説に対する本人評価・修正文を保存する
+      tags: [Axis Assessments]
+      operationId: reviewAxisAssessment
+      summary: 4軸分析に対する本人評価・修正文を保存する
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReviewHypothesisRequest'
+              $ref: '#/components/schemas/ReviewAxisAssessmentRequest'
       responses:
         '200':
-          description: 更新した仮説
+          description: 更新した4軸分析
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CareerHypothesis'
+                $ref: '#/components/schemas/AxisAssessment'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -390,20 +495,85 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
 
-  /api/v1/career-report:
+  /api/v1/self-analysis-reports:
     get:
       tags: [Self Analysis]
-      operationId: getCareerReport
-      summary: 最新のキャリア仮説レポートを取得する
+      operationId: listSelfAnalysisReports
+      summary: 過去の分析スナップショット一覧を取得する
+      description: 作成日時の降順で全件返す。スナップショットは上書きされず追加される設計のため全履歴が保持される。
       responses:
         '200':
-          description: 最新レポート
+          description: スナップショット一覧
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CareerReport'
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SelfAnalysisAxisReport'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Self Analysis]
+      operationId: createSelfAnalysisReport
+      summary: AIが生成した4軸自己分析結果をスナップショットとして保存する
+      description: |
+        4軸（ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT）すべてを含む
+        JSONを受け取り、DBに追記する。既存スナップショットは変更しない。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSelfAnalysisAxisReportRequest'
+      responses:
+        '201':
+          description: 作成したスナップショット
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfAnalysisAxisReport'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/self-analysis-reports/latest:
+    get:
+      tags: [Self Analysis]
+      operationId: getLatestSelfAnalysisReport
+      summary: 最新の自己分析スナップショットを取得する
+      responses:
+        '200':
+          description: 最新スナップショット
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfAnalysisAxisReport'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/v1/self-analysis-reports/{reportId}:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      tags: [Self Analysis]
+      operationId: getSelfAnalysisReport
+      summary: 指定した分析スナップショットの詳細を取得する
+      responses:
+        '200':
+          description: スナップショット詳細
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfAnalysisAxisReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/v1/companies:
     get:
@@ -520,6 +690,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -531,6 +703,7 @@ paths:
     post:
       tags: [Companies]
       operationId: importCompanyUrl
+      x-priority: P1
       summary: URLから企業公式情報を取得・構造化して登録する
       description: |
         `http`/`https`のみ許可し、localhost、プライベートIP、リンクローカルIP、
@@ -554,6 +727,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -565,6 +740,7 @@ paths:
     post:
       tags: [Companies]
       operationId: importCompanyFile
+      x-priority: P2
       summary: PDFまたはWordの企業公式資料を構造化して登録する
       requestBody:
         required: true
@@ -599,6 +775,8 @@ paths:
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -608,6 +786,7 @@ paths:
     post:
       tags: [Recommendations]
       operationId: createCompanyRecommendationRun
+      x-priority: P1
       summary: 登録済み候補企業の公式情報を更新し、根拠付き企業提案を開始する
       description: |
         ローカルLLMの一般知識から任意企業を発見するAPIではない。候補は`candidateCompanyIds`、
@@ -644,6 +823,7 @@ paths:
     get:
       tags: [Recommendations]
       operationId: getCompanyRecommendationRun
+      x-priority: P1
       summary: 企業提案の進捗と結果を取得する
       responses:
         '200':
@@ -683,7 +863,9 @@ paths:
       tags: [ES]
       operationId: createEsDocument
       summary: ユーザーが作成したES原文を登録する
-      description: 空の文章からの自動生成はMVP対象外。`originalText`は1文字以上必要。
+      description: |
+        空の文章からの自動生成はMVP対象外。`originalText`は1文字以上必要。
+        `companyId`は任意で、未指定時も本人経験に関する検査を実行できる。
       requestBody:
         required: true
         content:
@@ -757,6 +939,7 @@ paths:
       tags: [ES]
       operationId: analyzeEsDocument
       summary: ES原文の主張・根拠・文字数・設問適合性を検査する
+      description: 全確認済み経験・全セッション結果を候補として参照し、数値採点ではなく主張ごとの根拠状態、問題箇所、コメントを返す。
       responses:
         '201':
           description: 検査結果
@@ -768,6 +951,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -779,7 +964,8 @@ paths:
     post:
       tags: [ES]
       operationId: reviseEsDocument
-      summary: 最新検査を基に、根拠付きの推敲案を作成する
+      summary: 全履歴を候補に、提出可能品質を目標とした完成版ES案を作成する
+      description: すべての経験を本文へ列挙せず、設問と文字数に最も合う確認済み経験を選ぶ。生成後はverifyが必要。
       requestBody:
         required: false
         content:
@@ -797,6 +983,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -808,7 +996,7 @@ paths:
     post:
       tags: [ES]
       operationId: verifyEsRevision
-      summary: 推敲後の文章を原文と同じルールで再検査する
+      summary: 完成版ES案を原文と同じルールで再検査し、提出可否とAIコメントを作る
       responses:
         '201':
           description: 再検査結果
@@ -820,6 +1008,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
         '503':
           $ref: '#/components/responses/AiUnavailable'
         '504':
@@ -832,6 +1022,7 @@ paths:
     patch:
       tags: [ES]
       operationId: reviewEsRevisionChange
+      x-priority: P1
       summary: 推敲変更を採用または却下する
       requestBody:
         required: true
@@ -871,8 +1062,15 @@ components:
       schema:
         type: string
         format: uuid
-    HypothesisId:
-      name: hypothesisId
+    AxisAssessmentId:
+      name: axisAssessmentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ReportId:
+      name: reportId
       in: path
       required: true
       schema:
@@ -973,6 +1171,12 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    AiInvalidOutput:
+      description: AI出力が契約スキーマまたはドメイン規則に適合せず、再試行後も採用できなかった
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     UnsafeUrl:
       description: SSRF対策または許可スキームのルールによりURLを拒否した
       content:
@@ -1051,13 +1255,31 @@ components:
           items:
             type: string
 
+    DashboardResponse:
+      type: object
+      required: [activeSession, overallProfile, recentEsDocuments]
+      properties:
+        activeSession:
+          anyOf:
+            - $ref: '#/components/schemas/AnalysisSession'
+            - type: 'null'
+        overallProfile:
+          anyOf:
+            - $ref: '#/components/schemas/OverallSelfAnalysisProfile'
+            - type: 'null'
+        recentEsDocuments:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/EsDocumentSummary'
+
     AnalysisSessionStatus:
       type: string
-      enum: [ACTIVE, READY_TO_FINALIZE, COMPLETED]
+      enum: [ACTIVE, READY_TO_FINALIZE, ANALYZING, COMPLETED, FAILED, ABANDONED]
 
     AnalysisSession:
       type: object
-      required: [id, title, status, focusAreas, progress, createdAt, updatedAt]
+      required: [id, title, status, targetAxes, progress, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -1066,12 +1288,12 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/AnalysisSessionStatus'
-        focusAreas:
+        targetAxes:
           type: array
           minItems: 1
           uniqueItems: true
           items:
-            $ref: '#/components/schemas/HypothesisCategory'
+            $ref: '#/components/schemas/SelfAnalysisAxis'
         progress:
           $ref: '#/components/schemas/AnalysisProgress'
         createdAt:
@@ -1086,40 +1308,71 @@ components:
 
     AnalysisProgress:
       type: object
-      required: [confirmedExperienceCount, minimumExperienceCount, coveredExperienceTypes, missingAreas]
+      required: [userMessageCount, confirmedExperienceCount, coveredExperienceTypes, missingAxes, canGenerateResult]
       properties:
+        userMessageCount:
+          type: integer
+          minimum: 0
+          description: 対象セッションのUSERメッセージ数。
         confirmedExperienceCount:
           type: integer
           minimum: 0
-        minimumExperienceCount:
-          type: integer
-          const: 3
+          description: 対象セッション内で本人確認済みの経験数。過去セッション分は含めない。
+        canGenerateResult:
+          type: boolean
+          description: USERメッセージが1件以上ならtrue。確認済み経験数は条件にしない。
         coveredExperienceTypes:
           type: array
           uniqueItems: true
           items:
             $ref: '#/components/schemas/ExperienceType'
-        missingAreas:
+        missingAxes:
           type: array
           uniqueItems: true
           items:
-            $ref: '#/components/schemas/HypothesisCategory'
+            $ref: '#/components/schemas/SelfAnalysisAxis'
+
+    AnalysisSessionPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisSession'
+        nextCursor:
+          type: string
+
+    CurrentAnalysisSessionResponse:
+      type: object
+      required: [session]
+      properties:
+        session:
+          anyOf:
+            - $ref: '#/components/schemas/AnalysisSession'
+            - type: 'null'
 
     CreateAnalysisSessionRequest:
       type: object
+      required: [startMode]
       properties:
+        startMode:
+          type: string
+          enum: [START_NEW, RESTART_ACTIVE]
+          default: START_NEW
+          description: RESTART_ACTIVEは進行中セッションをABANDONEDにして新規作成する。
         title:
           type: string
           minLength: 1
           maxLength: 100
           default: 自己分析
-        focusAreas:
+        targetAxes:
           type: array
           minItems: 1
           uniqueItems: true
-          default: [CAN, WANT, ENERGY, CONTEXT]
+          default: [ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT]
           items:
-            $ref: '#/components/schemas/HypothesisCategory'
+            $ref: '#/components/schemas/SelfAnalysisAxis'
 
     MessageRole:
       type: string
@@ -1173,7 +1426,7 @@ components:
 
     ChatTurnResponse:
       type: object
-      required: [userMessage, assistantMessage, evidenceCandidates, experienceReady, missingAreas]
+      required: [userMessage, assistantMessage, evidenceCandidates, experienceReady, missingAxes, completionIntent]
       properties:
         userMessage:
           $ref: '#/components/schemas/ChatMessage'
@@ -1185,15 +1438,19 @@ components:
             $ref: '#/components/schemas/EvidenceCandidate'
         experienceReady:
           type: boolean
-        missingAreas:
+        missingAxes:
           type: array
           uniqueItems: true
           items:
-            $ref: '#/components/schemas/HypothesisCategory'
+            $ref: '#/components/schemas/SelfAnalysisAxis'
+        completionIntent:
+          type: string
+          enum: [NONE, SUGGESTED]
+          description: SUGGESTEDは終了候補。本人確認前にセッション状態を変更しない。
 
     QuestionTarget:
       type: string
-      enum: [CAN, WANT, ENERGY, CONTEXT, EXPERIENCE_DETAIL, CONTRADICTION, CONFIRMATION]
+      enum: [ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT, EXPERIENCE_DETAIL, CONTRADICTION, CONFIRMATION]
 
     CreateExperienceDraftRequest:
       type: object
@@ -1432,9 +1689,20 @@ components:
           minLength: 1
           maxLength: 2000
 
-    HypothesisCategory:
+    SelfAnalysisAxis:
       type: string
-      enum: [CAN, WANT, ENERGY, CONTEXT]
+      enum: [ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT]
+      description: |
+        ENERGY_SOURCE=Focus↔Connect、ACTION_STYLE=Plan↔Experiment、
+        SATISFACTION_SOURCE=Mastery↔Impact、PREFERRED_ENVIRONMENT=Stable↔Dynamic。
+
+    AxisPole:
+      type: string
+      enum: [LEFT, RIGHT, BOTH, CONTEXT_DEPENDENT, UNKNOWN]
+
+    AxisPosition:
+      type: string
+      enum: [LEFT, LEANS_LEFT, BALANCED_OR_BOTH, LEANS_RIGHT, RIGHT, CONTEXT_DEPENDENT, INSUFFICIENT_EVIDENCE]
 
     EvidenceSupportType:
       type: string
@@ -1442,10 +1710,12 @@ components:
 
     EvidenceCandidate:
       type: object
-      required: [category, statement, supportType, quote, messageId, interpretation]
+      required: [axis, pole, statement, supportType, quote, messageId, interpretation]
       properties:
-        category:
-          $ref: '#/components/schemas/HypothesisCategory'
+        axis:
+          $ref: '#/components/schemas/SelfAnalysisAxis'
+        pole:
+          $ref: '#/components/schemas/AxisPole'
         statement:
           type: string
           minLength: 1
@@ -1466,7 +1736,7 @@ components:
 
     EvidenceReference:
       type: object
-      required: [id, experienceId, supportType, quote, interpretation]
+      required: [id, experienceId, axis, pole, supportType, quote, interpretation]
       properties:
         id:
           type: string
@@ -1477,6 +1747,10 @@ components:
         messageId:
           type: string
           format: uuid
+        axis:
+          $ref: '#/components/schemas/SelfAnalysisAxis'
+        pole:
+          $ref: '#/components/schemas/AxisPole'
         supportType:
           $ref: '#/components/schemas/EvidenceSupportType'
         quote:
@@ -1486,7 +1760,7 @@ components:
           type: string
           minLength: 1
 
-    HypothesisStatus:
+    AxisAssessmentStatus:
       type: string
       enum: [CONFIRMED_PATTERN, CURRENT_HYPOTHESIS, INSUFFICIENT_EVIDENCE]
 
@@ -1494,27 +1768,39 @@ components:
       type: string
       enum: [UNREVIEWED, MATCHES, PARTIALLY_MATCHES, DOES_NOT_MATCH, NEEDS_EXPLORATION]
 
-    CareerHypothesis:
+    AxisAssessment:
       type: object
       required:
         - id
-        - category
+        - sourceSessionId
+        - axis
+        - position
         - aiStatement
         - displayStatement
         - status
-        - evidence
+        - leftEvidence
+        - rightEvidence
+        - bothEvidence
+        - contextEvidence
         - counterEvidence
-        - enablingConditions
-        - riskConditions
+        - leftConditions
+        - rightConditions
+        - contextNotes
         - userAssessment
+        - isStale
         - createdAt
         - updatedAt
       properties:
         id:
           type: string
           format: uuid
-        category:
-          $ref: '#/components/schemas/HypothesisCategory'
+        sourceSessionId:
+          type: string
+          format: uuid
+        axis:
+          $ref: '#/components/schemas/SelfAnalysisAxis'
+        position:
+          $ref: '#/components/schemas/AxisPosition'
         aiStatement:
           type: string
           description: AIが最初に生成した文。監査用に保持し上書きしない。
@@ -1522,8 +1808,20 @@ components:
           type: string
           description: ユーザー修正を反映した表示文。
         status:
-          $ref: '#/components/schemas/HypothesisStatus'
-        evidence:
+          $ref: '#/components/schemas/AxisAssessmentStatus'
+        leftEvidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceReference'
+        rightEvidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceReference'
+        bothEvidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceReference'
+        contextEvidence:
           type: array
           items:
             $ref: '#/components/schemas/EvidenceReference'
@@ -1531,11 +1829,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/EvidenceReference'
-        enablingConditions:
+        leftConditions:
           type: array
           items:
             type: string
-        riskConditions:
+        rightConditions:
+          type: array
+          items:
+            type: string
+        contextNotes:
           type: array
           items:
             type: string
@@ -1544,6 +1846,8 @@ components:
         userNote:
           type: string
           maxLength: 3000
+        isStale:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -1551,7 +1855,7 @@ components:
           type: string
           format: date-time
 
-    ReviewHypothesisRequest:
+    ReviewAxisAssessmentRequest:
       type: object
       required: [assessment]
       properties:
@@ -1567,34 +1871,85 @@ components:
 
     CareerCondition:
       type: object
-      required: [statement, evidenceHypothesisIds]
+      required: [statement, axisAssessmentIds]
       properties:
         statement:
           type: string
-        evidenceHypothesisIds:
+        axisAssessmentIds:
           type: array
           uniqueItems: true
           items:
             type: string
             format: uuid
 
-    CareerReport:
+    AxisAssessmentSnapshot:
+      type: object
+      required: [axisAssessmentId, axis, position, displayStatement, status, userAssessment, evidenceIds]
+      properties:
+        axisAssessmentId:
+          type: string
+          format: uuid
+        axis:
+          $ref: '#/components/schemas/SelfAnalysisAxis'
+        position:
+          $ref: '#/components/schemas/AxisPosition'
+        displayStatement:
+          type: string
+        status:
+          $ref: '#/components/schemas/AxisAssessmentStatus'
+        userAssessment:
+          $ref: '#/components/schemas/UserAssessment'
+        evidenceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+
+    ResultFreshness:
+      type: string
+      enum: [CURRENT, STALE]
+
+    SelfAnalysisReportSummary:
+      type: object
+      required: [id, sourceSessionId, summary, userMessageCount, confirmedExperienceCount, freshness, generatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sourceSessionId:
+          type: string
+          format: uuid
+        summary:
+          type: string
+          maxLength: 3000
+        userMessageCount:
+          type: integer
+          minimum: 1
+        confirmedExperienceCount:
+          type: integer
+          minimum: 0
+        freshness:
+          $ref: '#/components/schemas/ResultFreshness'
+        generatedAt:
+          type: string
+          format: date-time
+
+    SelfAnalysisReport:
       type: object
       required:
         - id
+        - sourceSessionId
         - summary
-        - confirmedCan
-        - currentHypotheses
-        - wants
-        - energizingActivities
-        - drainingActivities
-        - enablingContexts
-        - riskContexts
+        - axes
         - mustConditions
         - preferConditions
         - avoidConditions
         - verifyConditions
         - nextExperiments
+        - userMessageCount
+        - confirmedExperienceCount
+        - freshness
         - generatedAt
       properties:
         id:
@@ -1605,34 +1960,12 @@ components:
           format: uuid
         summary:
           type: string
-        confirmedCan:
+        axes:
           type: array
+          minItems: 4
+          maxItems: 4
           items:
-            $ref: '#/components/schemas/CareerHypothesis'
-        currentHypotheses:
-          type: array
-          items:
-            $ref: '#/components/schemas/CareerHypothesis'
-        wants:
-          type: array
-          items:
-            $ref: '#/components/schemas/CareerHypothesis'
-        energizingActivities:
-          type: array
-          items:
-            $ref: '#/components/schemas/CareerCondition'
-        drainingActivities:
-          type: array
-          items:
-            $ref: '#/components/schemas/CareerCondition'
-        enablingContexts:
-          type: array
-          items:
-            $ref: '#/components/schemas/CareerCondition'
-        riskContexts:
-          type: array
-          items:
-            $ref: '#/components/schemas/CareerCondition'
+            $ref: '#/components/schemas/AxisAssessmentSnapshot'
         mustConditions:
           type: array
           items:
@@ -1653,6 +1986,166 @@ components:
           type: array
           items:
             type: string
+        userMessageCount:
+          type: integer
+          minimum: 1
+        confirmedExperienceCount:
+          type: integer
+          minimum: 0
+        freshness:
+          $ref: '#/components/schemas/ResultFreshness'
+        generatedAt:
+          type: string
+          format: date-time
+
+    SelfAnalysisReportPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelfAnalysisReportSummary'
+        nextCursor:
+          type: string
+
+    DataWarningReason:
+      type: string
+      enum: [FEW_COMPLETED_SESSIONS, FEW_CONFIRMED_EXPERIENCES]
+
+    OverallDataSummary:
+      type: object
+      required:
+        - completedSessionCount
+        - userMessageCount
+        - confirmedExperienceCount
+        - isDataSparse
+        - warningReasons
+      properties:
+        completedSessionCount:
+          type: integer
+          minimum: 1
+        userMessageCount:
+          type: integer
+          minimum: 1
+        confirmedExperienceCount:
+          type: integer
+          minimum: 0
+        isDataSparse:
+          type: boolean
+          description: 完了セッション2件未満または確認済み経験3件未満ならtrue。結果生成は止めない。
+        warningReasons:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/DataWarningReason'
+
+    OverallAxisTrend:
+      type: object
+      required: [axis, position, statement, sourceReportIds, evidenceIds, contextNotes]
+      properties:
+        axis:
+          $ref: '#/components/schemas/SelfAnalysisAxis'
+        position:
+          $ref: '#/components/schemas/AxisPosition'
+        statement:
+          type: string
+          description: 全セッションの根拠から言語化した現在の総合傾向。
+        sourceReportIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        evidenceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        contextNotes:
+          type: array
+          items:
+            type: string
+
+    ProfileInsight:
+      type: object
+      required: [title, description, axes, sourceReportIds, evidenceIds]
+      properties:
+        title:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 1200
+        axes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/SelfAnalysisAxis'
+        sourceReportIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        evidenceIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+
+    OverallSelfAnalysisProfile:
+      type: object
+      required:
+        - id
+        - summary
+        - axes
+        - strengths
+        - weaknesses
+        - dataSummary
+        - sourceReportIds
+        - freshness
+        - generatedAt
+      properties:
+        id:
+          type: string
+          const: default
+        summary:
+          type: string
+          maxLength: 3000
+        axes:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/OverallAxisTrend'
+        strengths:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/ProfileInsight'
+        weaknesses:
+          type: array
+          maxItems: 8
+          description: 人格の断定ではなく、苦手になりやすい条件・注意点として表示する。
+          items:
+            $ref: '#/components/schemas/ProfileInsight'
+        dataSummary:
+          $ref: '#/components/schemas/OverallDataSummary'
+        sourceReportIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        freshness:
+          $ref: '#/components/schemas/ResultFreshness'
         generatedAt:
           type: string
           format: date-time
@@ -1887,10 +2380,10 @@ components:
     CreateRecommendationRunRequest:
       type: object
       properties:
-        careerReportId:
+        selfAnalysisReportId:
           type: string
           format: uuid
-          description: 省略時は最新かつ古くないキャリアレポートを使用する。
+          description: 省略時は最新かつ古くない自己分析レポートを使用する。
         candidateCompanyIds:
           type: array
           minItems: 1
@@ -2020,7 +2513,7 @@ components:
       type: object
       required:
         - id
-        - careerReportId
+        - selfAnalysisReportId
         - candidateCompanyIds
         - refreshOfficialSources
         - status
@@ -2033,7 +2526,7 @@ components:
         id:
           type: string
           format: uuid
-        careerReportId:
+        selfAnalysisReportId:
           type: string
           format: uuid
         candidateCompanyIds:
@@ -2073,13 +2566,9 @@ components:
       type: string
       enum: [DRAFT, ANALYZED, REVISED, VERIFIED]
 
-    ResultFreshness:
-      type: string
-      enum: [CURRENT, STALE]
-
     EsDocumentSummary:
       type: object
-      required: [id, companyId, question, characterLimit, characterCount, status, createdAt, updatedAt]
+      required: [id, question, characterLimit, characterCount, status, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -2111,15 +2600,16 @@ components:
       allOf:
         - $ref: '#/components/schemas/EsDocumentSummary'
         - type: object
-          required: [originalText, selectedExperienceIds, emphasis, analyses, revisions]
+          required: [originalText, preferredExperienceIds, emphasis, analyses, revisions]
           properties:
             originalText:
               type: string
               minLength: 1
               maxLength: 20000
-            selectedExperienceIds:
+            preferredExperienceIds:
               type: array
               uniqueItems: true
+              description: 優先して検討してほしい経験。未指定の確認済み経験も候補から除外しない。
               items:
                 type: string
                 format: uuid
@@ -2138,11 +2628,12 @@ components:
 
     CreateEsDocumentRequest:
       type: object
-      required: [companyId, question, characterLimit, originalText]
+      required: [question, characterLimit, originalText]
       properties:
         companyId:
           type: string
           format: uuid
+          description: 任意。未指定時は本人経験だけを検査し、企業主張は確認済みにしない。
         targetRole:
           type: string
           maxLength: 200
@@ -2158,9 +2649,10 @@ components:
           type: string
           minLength: 1
           maxLength: 20000
-        selectedExperienceIds:
+        preferredExperienceIds:
           type: array
           uniqueItems: true
+          description: 優先ヒント。ES処理には全確認済み経験を候補として渡す。
           items:
             type: string
             format: uuid
@@ -2174,6 +2666,12 @@ components:
       type: object
       minProperties: 1
       properties:
+        companyId:
+          description: 任意の企業紐付け。`null`で解除する。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
         targetRole:
           type: string
           maxLength: 200
@@ -2189,9 +2687,10 @@ components:
           type: string
           minLength: 1
           maxLength: 20000
-        selectedExperienceIds:
+        preferredExperienceIds:
           type: array
           uniqueItems: true
+          description: 優先ヒント。指定外の確認済み経験も候補から除外しない。
           items:
             type: string
             format: uuid
@@ -2221,6 +2720,18 @@ components:
         quote:
           type: string
 
+    TextRange:
+      type: object
+      required: [startOffset, endOffset]
+      description: Unicodeコードポイント基準。startOffsetを含み、endOffsetを含まない。
+      properties:
+        startOffset:
+          type: integer
+          minimum: 0
+        endOffset:
+          type: integer
+          minimum: 1
+
     EsClaim:
       type: object
       required: [id, sentence, text, type, status, evidence]
@@ -2242,6 +2753,8 @@ components:
             $ref: '#/components/schemas/ClaimEvidence'
         explanation:
           type: string
+        targetRange:
+          $ref: '#/components/schemas/TextRange'
 
     EsIssueCode:
       type: string
@@ -2269,11 +2782,38 @@ components:
           type: string
         sentence:
           type: string
+        targetRange:
+          $ref: '#/components/schemas/TextRange'
         relatedClaimIds:
           type: array
           items:
             type: string
             format: uuid
+
+    SubmissionReadiness:
+      type: string
+      enum: [READY_TO_SUBMIT, NEEDS_REVIEW]
+      description: 設問回答、文字数、全主張の根拠を決定的に検査した結果。数値点数ではない。
+
+    EsAiComment:
+      type: object
+      required: [category, message, severity, evidence]
+      properties:
+        category:
+          type: string
+          enum: [EVIDENCE_STATUS, ISSUE, IMPROVEMENT_REASON]
+        message:
+          type: string
+          maxLength: 2000
+        severity:
+          type: string
+          enum: [ERROR, WARNING, INFO]
+        targetRange:
+          $ref: '#/components/schemas/TextRange'
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClaimEvidence'
 
     EsAnalysis:
       type: object
@@ -2285,8 +2825,10 @@ components:
         - characterCount
         - withinCharacterLimit
         - questionCoverage
+        - submissionReadiness
         - claims
         - issues
+        - comments
         - createdAt
       properties:
         id:
@@ -2312,6 +2854,8 @@ components:
         questionCoverage:
           type: string
           enum: [ANSWERED, PARTIALLY_ANSWERED, NOT_ANSWERED]
+        submissionReadiness:
+          $ref: '#/components/schemas/SubmissionReadiness'
         claims:
           type: array
           items:
@@ -2320,6 +2864,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/EsIssue'
+        comments:
+          type: array
+          description: 完成版ESの下へ、根拠状態・問題箇所・改善理由として表示するAIコメント。
+          items:
+            $ref: '#/components/schemas/EsAiComment'
         createdAt:
           type: string
           format: date-time
@@ -2368,6 +2917,8 @@ components:
         - esDocumentId
         - freshness
         - revisedText
+        - usedExperienceIds
+        - usedSessionReportIds
         - characterCount
         - changes
         - unsupportedClaims
@@ -2386,6 +2937,20 @@ components:
           $ref: '#/components/schemas/ResultFreshness'
         revisedText:
           type: string
+          description: 提出可能品質を目標に生成した完成版ES案。verify完了前は提出可能と断定しない。
+        usedExperienceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        usedSessionReportIds:
+          type: array
+          uniqueItems: true
+          description: 表現方針の参考にしたセッション結果。本人事実の証明には使わない。
+          items:
+            type: string
+            format: uuid
         characterCount:
           type: integer
           minimum: 0
@@ -2444,3 +3009,157 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ErrorDetail'
+
+    SelfAnalysisReportAxisType:
+      type: string
+      enum: [ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT]
+      description: |
+        4軸の識別子。
+        - ENERGY_SOURCE: Focus（集中）↔ Connect（つながり）
+        - ACTION_STYLE: Plan（計画）↔ Experiment（実験）
+        - SATISFACTION_SOURCE: Mastery（熟達）↔ Impact（インパクト）
+        - PREFERRED_ENVIRONMENT: Stable（安定）↔ Dynamic（変化）
+
+    SelfAnalysisReportUserEvaluation:
+      type: string
+      enum: [UNREVIEWED, MATCHES, PARTIALLY_MATCHES, DOES_NOT_MATCH, NEEDS_EXPLORATION]
+
+    SelfAnalysisAxisReportDetail:
+      type: object
+      required:
+        - id
+        - axisType
+        - currentTendency
+        - userComment
+        - leftEvidence
+        - rightEvidence
+        - evidenceExperienceIds
+        - evidenceUtteranceIds
+        - userEvaluation
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        axisType:
+          $ref: '#/components/schemas/SelfAnalysisReportAxisType'
+        currentTendency:
+          type: string
+          minLength: 1
+          description: 現在の傾向（AIが判定した軸上の位置づけ）
+        userComment:
+          type: string
+          minLength: 1
+          description: ユーザー向けコメント
+        leftEvidence:
+          type: string
+          minLength: 1
+          description: 左極側の根拠
+        rightEvidence:
+          type: string
+          minLength: 1
+          description: 右極側の根拠
+        contextDifference:
+          type: string
+          description: 状況による違い
+        counterExample:
+          type: string
+          description: 反対事例
+        evidenceExperienceIds:
+          type: array
+          uniqueItems: true
+          description: 根拠となった経験ID
+          items:
+            type: string
+            format: uuid
+        evidenceUtteranceIds:
+          type: array
+          uniqueItems: true
+          description: 根拠となった発言ID
+          items:
+            type: string
+            format: uuid
+        userEvaluation:
+          $ref: '#/components/schemas/SelfAnalysisReportUserEvaluation'
+        createdAt:
+          type: string
+          format: date-time
+
+    SelfAnalysisAxisReport:
+      type: object
+      required:
+        - id
+        - isOutdated
+        - createdAt
+        - axisDetails
+      properties:
+        id:
+          type: string
+          format: uuid
+        isOutdated:
+          type: boolean
+          description: 新しいスナップショットが存在するなど、このスナップショットが古くなっているか
+        createdAt:
+          type: string
+          format: date-time
+        axisDetails:
+          type: array
+          minItems: 4
+          maxItems: 4
+          description: 4軸の評価詳細
+          items:
+            $ref: '#/components/schemas/SelfAnalysisAxisReportDetail'
+
+    CreateSelfAnalysisAxisReportDetailRequest:
+      type: object
+      required:
+        - axisType
+        - currentTendency
+        - userComment
+        - leftEvidence
+        - rightEvidence
+      properties:
+        axisType:
+          $ref: '#/components/schemas/SelfAnalysisReportAxisType'
+        currentTendency:
+          type: string
+          minLength: 1
+        userComment:
+          type: string
+          minLength: 1
+        leftEvidence:
+          type: string
+          minLength: 1
+        rightEvidence:
+          type: string
+          minLength: 1
+        contextDifference:
+          type: string
+        counterExample:
+          type: string
+        evidenceExperienceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        evidenceUtteranceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        userEvaluation:
+          $ref: '#/components/schemas/SelfAnalysisReportUserEvaluation'
+
+    CreateSelfAnalysisAxisReportRequest:
+      type: object
+      required: [axisDetails]
+      properties:
+        axisDetails:
+          type: array
+          minItems: 4
+          maxItems: 4
+          description: 4軸すべてを1件ずつ含める必要がある
+          items:
+            $ref: '#/components/schemas/CreateSelfAnalysisAxisReportDetailRequest'
