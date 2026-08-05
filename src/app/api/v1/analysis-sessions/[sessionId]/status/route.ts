@@ -1,6 +1,6 @@
-import { prisma } from '../../../../../../lib/prisma.js';
-import type { UpdateAnalysisSessionStatusRequest } from '../../../../../../types/session.js';
-import type { AnalysisSessionStatus, SelfAnalysisAxis } from '../../../../../../types/dashboard.js';
+import { prisma } from '../../../../../../lib/prisma.ts';
+import type { UpdateAnalysisSessionStatusRequest } from '../../../../../../types/session.ts';
+import type { AnalysisSessionStatus, SelfAnalysisAxis } from '../../../../../../types/dashboard.ts';
 
 const VALID_STATUSES: AnalysisSessionStatus[] = ['ACTIVE', 'READY_TO_FINALIZE', 'COMPLETED', 'ABANDONED'];
 

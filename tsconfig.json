@@ -6,7 +6,8 @@
     "allowImportingTsExtensions": true,
     "lib": [
       "ES2023",
-      "ESNext.Disposable"
+      "ESNext.Disposable",
+      "DOM"
     ],
     "types": [
       "node"

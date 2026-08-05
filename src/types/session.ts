@@ -1,4 +1,4 @@
-import type { AnalysisSessionStatus, SelfAnalysisAxis } from './dashboard.js';
+import type { AnalysisSessionStatus, SelfAnalysisAxis } from './dashboard.ts';
 
 export type MessageRole = 'USER' | 'ASSISTANT';
 

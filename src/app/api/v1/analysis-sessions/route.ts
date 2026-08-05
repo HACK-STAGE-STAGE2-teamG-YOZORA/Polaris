@@ -1,6 +1,6 @@
-import { prisma } from '../../../../lib/prisma.js';
-import type { CreateAnalysisSessionRequest } from '../../../../types/session.js';
-import type { SelfAnalysisAxis } from '../../../../types/dashboard.js';
+import { prisma } from '../../../../lib/prisma.ts';
+import type { CreateAnalysisSessionRequest } from '../../../../types/session.ts';
+import type { SelfAnalysisAxis } from '../../../../types/dashboard.ts';
 
 export async function POST(request: Request): Promise<Response> {
   try {
