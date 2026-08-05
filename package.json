@@ -1,0 +1,37 @@
+{
+  "name": "polaris",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test:lm-studio": "node --env-file=.env scripts/test-lm-studio.ts",
+    "test:structured-output": "node --env-file=.env scripts/test-structured-output.ts",
+    "typecheck": "tsc --noEmit",
+    "test:experience-draft": "node --env-file=.env scripts/test-experience-draft.ts",
+    "test:self-analysis-ai": "node --env-file=.env scripts/test-self-analysis-ai.ts",
+    "test:career-ai": "node --env-file=.env scripts/test-career-ai.ts",
+    "self-analysis": "node --env-file=.env scripts/run-self-analysis.ts"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@hookform/resolvers": "^5.7.1",
+    "@lmstudio/sdk": "^1.5.0",
+    "@mui/material": "^9.2.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "next": "^16.3.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-hook-form": "^7.84.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "^7.0.2"
+  }
+}
