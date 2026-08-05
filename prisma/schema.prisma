@@ -224,6 +224,7 @@ model Message {
   session       AnalysisSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   quotes        ExperienceQuote[]
   evidenceItems AxisEvidenceItem[]
+  experiences   Experience[]
 
   @@index([sessionId, createdAt])
   @@map("messages")
@@ -232,6 +233,7 @@ model Message {
 model Experience {
   id              String           @id @default(uuid())
   sourceSessionId String?          @map("source_session_id")
+  sourceMessageId String?          @map("source_message_id")
   type            ExperienceType
   title           String
   situation       String
@@ -247,15 +249,18 @@ model Experience {
   energyChange    Int              @map("energy_change")
   environment     Json             @map("environment_json")
   status          ExperienceStatus
+  isTarget        Boolean          @default(true) @map("is_target")
   confirmedAt     DateTime?        @map("confirmed_at")
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
 
-  sourceSession AnalysisSession?  @relation(fields: [sourceSessionId], references: [id], onDelete: SetNull)
-  quotes        ExperienceQuote[]
-  evidenceItems AxisEvidenceItem[]
+  sourceSession   AnalysisSession?  @relation(fields: [sourceSessionId], references: [id], onDelete: SetNull)
+  sourceMessage   Message?          @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  quotes          ExperienceQuote[]
+  evidenceItems   AxisEvidenceItem[]
 
   @@index([status])
+  @@index([isTarget])
   @@map("experiences")
 }
 
