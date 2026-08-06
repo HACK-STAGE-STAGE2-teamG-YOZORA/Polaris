@@ -96,7 +96,8 @@ paths:
       operationId: recomputeOverallSelfAnalysis
       summary: 全完了セッションからホーム用総合プロフィールを再計算する
       description: |
-        全セッションレポート、全確認済み経験、正式根拠、本人評価を再集計する。
+        全セッションレポート、全確認済み経験、正式根拠、本人評価を候補母集団として再集計する。
+        コンテキスト上限を超える場合は、新しいレポートと接続済み根拠を優先する。
         セッションの軸位置を数値化して平均せず、全根拠から4軸、強み、弱み・注意点を生成する。
         完了セッションが2件未満または確認済み経験が3件未満でも生成し、`isDataSparse=true`を返す。
       responses:
@@ -108,6 +109,8 @@ paths:
                 $ref: '#/components/schemas/OverallSelfAnalysisProfile'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -306,6 +309,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -338,6 +343,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -952,7 +959,7 @@ paths:
       tags: [ES]
       operationId: analyzeEsDocument
       summary: ES原文の主張・根拠・文字数・設問適合性を検査する
-      description: 全確認済み経験・全セッション結果を候補として参照し、数値採点ではなく主張ごとの根拠状態、問題箇所、コメントを返す。
+      description: 全確認済み経験・全セッション結果を候補母集団とし、上限内で関連度の高い根拠を参照する。数値採点ではなく主張ごとの根拠状態、問題箇所、コメントを返す。
       responses:
         '201':
           description: 検査結果
@@ -964,6 +971,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -977,8 +986,8 @@ paths:
     post:
       tags: [ES]
       operationId: reviseEsDocument
-      summary: 全履歴を候補に、提出可能品質を目標とした完成版ES案を作成する
-      description: すべての経験を本文へ列挙せず、設問と文字数に最も合う確認済み経験を選ぶ。生成後はverifyが必要。
+      summary: 全履歴を候補母集団に、提出可能品質を目標とした完成版ES案を作成する
+      description: ユーザー指定と設問との関連度を優先し、すべての経験を本文へ列挙せず、設問と文字数に最も合う確認済み経験を選ぶ。生成後はverifyが必要。
       requestBody:
         required: false
         content:
@@ -996,6 +1005,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -1021,6 +1032,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
