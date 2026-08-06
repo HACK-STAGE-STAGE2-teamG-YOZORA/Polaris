@@ -18,6 +18,12 @@ import {
   verifyAndRecoverMessageQuotes,
 } from "./quotes.ts";
 import { loadAiSchema } from "./schema.ts";
+import {
+  OVERALL_SELF_ANALYSIS_AXES,
+  stabilizeOverallSelfAnalysisCandidate,
+} from "./overall-output.ts";
+import { stabilizeAxisAssessmentsCandidate } from "./axis-output.ts";
+import { stabilizeSelfAnalysisReportCandidate } from "./report-output.ts";
 import type {
   ChatTurnInput,
   ChatTurnOutput,
@@ -272,9 +278,31 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
       timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        const allowedEvidenceIds = [...evidenceById.keys()];
+        if (allowedEvidenceIds.length === 0) return;
+
+        const properties = schema.properties.assessments.items.properties;
+        for (const field of [
+          "leftEvidenceIds",
+          "rightEvidenceIds",
+          "bothEvidenceIds",
+          "contextEvidenceIds",
+          "counterEvidenceIds",
+        ]) {
+          properties[field].items.enum = allowedEvidenceIds;
+        }
+      },
+      beforeValidation: (output) => {
+        stabilizeAxisAssessmentsCandidate(output, input);
+      },
       afterValidation: (output) => {
         const axes = output.assessments.map((assessment) => assessment.axis);
-        if (new Set(axes).size !== axes.length) {
+        const outputAxes = new Set(axes);
+        if (
+          outputAxes.size !== OVERALL_SELF_ANALYSIS_AXES.length
+          || OVERALL_SELF_ANALYSIS_AXES.some((axis) => !outputAxes.has(axis))
+        ) {
           throw new Error("同じ軸の分析を複数返せません。");
         }
 
@@ -343,6 +371,14 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
       timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        const allowedAssessmentIds = [...assessmentIds];
+        schema.properties.axisComments.items.properties.axisAssessmentId.enum = allowedAssessmentIds;
+        schema.$defs.condition.properties.axisAssessmentIds.items.enum = allowedAssessmentIds;
+      },
+      beforeValidation: (output) => {
+        stabilizeSelfAnalysisReportCandidate(output, input);
+      },
       afterValidation: (output) => {
         if (new Set(output.axisComments.map((item) => item.axisAssessmentId)).size !== output.axisComments.length) {
           throw new Error('同じ4軸分析へのコメントが重複しています。');
@@ -373,10 +409,10 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     input: OverallSelfAnalysisInput,
   ): Promise<OverallSelfAnalysisOutput> {
     const prompt = buildOverallSelfAnalysisPrompt(input);
-    const reportIds = new Set(input.completedSessionReports.map((report) => report.id));
-    const evidenceIds = new Set(
-      input.completedSessionReports.flatMap((report) => report.axes.flatMap((axis) => axis.evidenceIds)),
-    );
+    const reportById = new Map(input.completedSessionReports.map((report) => [report.id, report]));
+    const reportIds = new Set(reportById.keys());
+    const evidenceById = new Map(input.evidenceItems.map((evidence) => [evidence.id, evidence]));
+    const evidenceIds = new Set(evidenceById.keys());
 
     return this.#runStructuredTask<OverallSelfAnalysisOutput>({
       schemaFileName: "overall-self-analysis-output.schema.json",
@@ -385,8 +421,30 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
       timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        const trendProperties = schema.properties.axisTrends.items.properties;
+        const insightProperties = schema.$defs.profileInsight.properties;
+        const allowedReportIds = [...reportIds];
+        const allowedEvidenceIds = [...evidenceIds];
+
+        if (allowedReportIds.length > 0) {
+          trendProperties.sourceReportIds.items.enum = allowedReportIds;
+          insightProperties.sourceReportIds.items.enum = allowedReportIds;
+        }
+        if (allowedEvidenceIds.length > 0) {
+          trendProperties.evidenceIds.items.enum = allowedEvidenceIds;
+          insightProperties.evidenceIds.items.enum = allowedEvidenceIds;
+        }
+      },
+      beforeValidation: (output) => {
+        stabilizeOverallSelfAnalysisCandidate(output, input);
+      },
       afterValidation: (output) => {
-        if (new Set(output.axisTrends.map((item) => item.axis)).size !== output.axisTrends.length) {
+        const outputAxes = new Set(output.axisTrends.map((item) => item.axis));
+        if (
+          outputAxes.size !== OVERALL_SELF_ANALYSIS_AXES.length
+          || OVERALL_SELF_ANALYSIS_AXES.some((axis) => !outputAxes.has(axis))
+        ) {
           throw new Error('総合4軸のaxisが重複しています。');
         }
         for (const id of [
@@ -402,6 +460,36 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
           ...output.weaknesses.flatMap((item) => item.evidenceIds),
         ]) {
           if (!evidenceIds.has(id)) throw new Error(`存在しない根拠IDです: ${id}`);
+        }
+        for (const trend of output.axisTrends) {
+          for (const id of trend.sourceReportIds) {
+            if (!reportById.get(id)?.axes.some((item) => item.axis === trend.axis)) {
+              throw new Error(`総合4軸のaxisと参照レポートIDが一致しません: ${id}`);
+            }
+          }
+          for (const id of trend.evidenceIds) {
+            if (evidenceById.get(id)?.axis !== trend.axis) {
+              throw new Error(`総合4軸のaxisと根拠IDが一致しません: ${id}`);
+            }
+            if (!trend.sourceReportIds.some((reportId) => reportById.get(reportId)?.axes.some(
+              (item) => item.axis === trend.axis && item.evidenceIds.includes(id),
+            ))) {
+              throw new Error(`総合4軸の根拠IDが参照レポートに接続していません: ${id}`);
+            }
+          }
+        }
+        for (const insight of [...output.strengths, ...output.weaknesses]) {
+          for (const id of insight.evidenceIds) {
+            const axis = evidenceById.get(id)?.axis;
+            if (!axis || !insight.axes.includes(axis)) {
+              throw new Error(`強み・弱みのaxisと根拠IDが一致しません: ${id}`);
+            }
+            if (!insight.sourceReportIds.some((reportId) => reportById.get(reportId)?.axes.some(
+              (item) => insight.axes.includes(item.axis) && item.evidenceIds.includes(id),
+            ))) {
+              throw new Error(`強み・弱みの根拠IDが参照レポートに接続していません: ${id}`);
+            }
+          }
         }
       },
     });
