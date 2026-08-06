@@ -347,5 +347,7 @@ export type PolarisAiConfig = {
   structuredTemperature: number;
   chatMaxTokens: number;
   taskMaxTokens: number;
+  chatTimeoutMs: number;
+  taskTimeoutMs: number;
   repairAttempts: number;
 };

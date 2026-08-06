@@ -1,5 +1,5 @@
 import { Chat, LMStudioClient } from "@lmstudio/sdk";
-import { loadPolarisAiConfig } from "./config";
+import { loadPolarisAiConfig } from "./config.ts";
 import {
   buildChatTurnPrompt,
   buildCompanyFactsPrompt,
@@ -10,13 +10,13 @@ import {
   buildAxisAssessmentsPrompt,
   buildOverallSelfAnalysisPrompt,
   buildSelfAnalysisReportPrompt,
-} from "./prompts";
+} from "./prompts.ts";
 import {
   filterAndRecoverMessageQuotes,
   recoverExactQuote,
   verifyAndRecoverMessageQuotes,
-} from "./quotes";
-import { loadAiSchema } from "./schema";
+} from "./quotes.ts";
+import { loadAiSchema } from "./schema.ts";
 import type {
   ChatTurnInput,
   ChatTurnOutput,
@@ -37,7 +37,7 @@ import type {
   PolarisAiConfig,
   SelfAnalysisReportInput,
   SelfAnalysisReportOutput,
-} from "./types";
+} from "./types.ts";
 
 type StructuredTaskOptions<T> = {
   schemaFileName: string;
@@ -45,6 +45,7 @@ type StructuredTaskOptions<T> = {
   userPrompt: string;
   temperature: number;
   maxTokens: number;
+  timeoutMs: number;
   beforeValidation?: (output: unknown) => void;
   afterValidation?: (output: T) => void;
 };
@@ -52,12 +53,14 @@ type StructuredTaskOptions<T> = {
 export class PolarisAiError extends Error {
   readonly code:
     | "AI_UNAVAILABLE"
+    | "AI_TIMEOUT"
     | "AI_INVALID_OUTPUT"
     | "AI_REQUEST_FAILED";
 
   constructor(
     code:
       | "AI_UNAVAILABLE"
+      | "AI_TIMEOUT"
       | "AI_INVALID_OUTPUT"
       | "AI_REQUEST_FAILED",
     message: string,
@@ -89,6 +92,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.chatTemperature,
       maxTokens: this.#config.chatMaxTokens,
+      timeoutMs: this.#config.chatTimeoutMs,
       afterValidation: (output) => {
         const questionMarks = [...output.reply.matchAll(/[？?]/gu)].length;
 
@@ -110,6 +114,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     input: ExperienceDraftInput,
   ): Promise<ExperienceDraftOutput> {
     const prompt = buildExperienceDraftPrompt(input);
+    const deadline = Date.now() + this.#config.taskTimeoutMs;
 
     const draft = await this.#runStructuredTask<ExperienceDraftOutput>({
       schemaFileName: "experience-draft-output.schema.json",
@@ -117,6 +122,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: Math.max(1, deadline - Date.now()),
       beforeValidation: (value) => {
         if (
           value &&
@@ -185,6 +191,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: groundingPrompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: Math.min(this.#config.taskMaxTokens, 2000),
+      timeoutMs: Math.max(1, deadline - Date.now()),
       afterValidation: (output) => {
         const actualFields = output.assessments.map(
           (assessment) => assessment.field,
@@ -260,6 +267,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
       afterValidation: (output) => {
         const axes = output.assessments.map((assessment) => assessment.axis);
         if (new Set(axes).size !== axes.length) {
@@ -267,32 +275,22 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
         }
 
         for (const assessment of output.assessments) {
-          const groups = [
-            ['LEFT', assessment.leftEvidenceIds],
-            ['RIGHT', assessment.rightEvidenceIds],
-            ['BOTH', assessment.bothEvidenceIds],
-            ['CONTEXT_DEPENDENT', assessment.contextEvidenceIds],
-          ] as const;
-          const groupedIds = groups.flatMap(([, ids]) => ids);
-          const supporting = new Set(groupedIds);
-
-          if (supporting.size !== groupedIds.length) {
-            throw new Error('同じ根拠を複数のpoleグループへ入れることはできません。');
-          }
-
-          for (const [pole, ids] of groups) {
-            for (const id of ids) {
-              const evidence = evidenceById.get(id);
-              if (evidence && (evidence.pole !== pole || evidence.supportType !== 'SUPPORT')) {
-                throw new Error(`根拠のpoleまたはsupportTypeが出力グループと一致しません: ${id}`);
-              }
-            }
-          }
-
-          for (const evidenceId of [
-            ...groupedIds,
+          const referencedIds = new Set([
+            ...assessment.leftEvidenceIds,
+            ...assessment.rightEvidenceIds,
+            ...assessment.bothEvidenceIds,
+            ...assessment.contextEvidenceIds,
             ...assessment.counterEvidenceIds,
-          ]) {
+          ]);
+          const normalized = {
+            left: [] as string[],
+            right: [] as string[],
+            both: [] as string[],
+            context: [] as string[],
+            counter: [] as string[],
+          };
+
+          for (const evidenceId of referencedIds) {
             const evidence = evidenceById.get(evidenceId);
 
             if (!evidence) {
@@ -304,18 +302,25 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
                 `軸分析と根拠のaxisが一致しません: ${evidenceId}`,
               );
             }
-          }
 
-          if (
-            assessment.counterEvidenceIds.some((id) => supporting.has(id))
-          ) {
-            throw new Error("同じ根拠を支持と反証の両方に使えません。");
-          }
-          for (const id of assessment.counterEvidenceIds) {
-            if (evidenceById.get(id)?.supportType !== 'COUNTER') {
-              throw new Error(`反証グループにCOUNTERではない根拠があります: ${id}`);
+            if (evidence.supportType === "COUNTER") {
+              normalized.counter.push(evidenceId);
+            } else if (evidence.pole === "LEFT") {
+              normalized.left.push(evidenceId);
+            } else if (evidence.pole === "RIGHT") {
+              normalized.right.push(evidenceId);
+            } else if (evidence.pole === "BOTH") {
+              normalized.both.push(evidenceId);
+            } else if (evidence.pole === "CONTEXT_DEPENDENT") {
+              normalized.context.push(evidenceId);
             }
           }
+
+          assessment.leftEvidenceIds = normalized.left;
+          assessment.rightEvidenceIds = normalized.right;
+          assessment.bothEvidenceIds = normalized.both;
+          assessment.contextEvidenceIds = normalized.context;
+          assessment.counterEvidenceIds = normalized.counter;
         }
       },
     });
@@ -333,6 +338,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
       afterValidation: (output) => {
         if (new Set(output.axisComments.map((item) => item.axisAssessmentId)).size !== output.axisComments.length) {
           throw new Error('同じ4軸分析へのコメントが重複しています。');
@@ -374,6 +380,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
       afterValidation: (output) => {
         if (new Set(output.axisTrends.map((item) => item.axis)).size !== output.axisTrends.length) {
           throw new Error('総合4軸のaxisが重複しています。');
@@ -404,6 +411,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
       afterValidation: (output) => {
         for (const fact of output.facts) {
           const exact = recoverExactQuote(input.source.text, fact.evidenceQuote);
@@ -423,6 +431,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
       afterValidation: (output) => {
         for (const claim of output.claims) {
           this.#verifySourceEvidence(claim.evidence, input);
@@ -453,6 +462,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: 0.3,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
       afterValidation: (output) => {
         for (const change of output.changes) {
           this.#verifySourceEvidence(change.evidence, input);
@@ -529,6 +539,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     options: StructuredTaskOptions<T>,
   ): Promise<T> {
     const schema = await loadAiSchema<T>(options.schemaFileName);
+    const timeoutSignal = AbortSignal.timeout(options.timeoutMs);
 
     let model;
 
@@ -575,6 +586,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
           },
           temperature: options.temperature,
           maxTokens: options.maxTokens,
+          signal: timeoutSignal,
         });
 
         previousOutput = result.content;
@@ -584,6 +596,17 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
         options.afterValidation?.(output);
         return output;
       } catch (error) {
+        if (timeoutSignal.aborted) {
+          throw new PolarisAiError(
+            "AI_TIMEOUT",
+            `AI処理が制限時間（${options.timeoutMs}ms）を超えました。入力を保持したまま再試行してください。`,
+            { cause: error },
+          );
+        }
+        console.warn(
+          `AI構造化出力の検証に失敗しました（${attempt + 1}/${this.#config.repairAttempts + 1}）:`,
+          error instanceof Error ? error.message : String(error),
+        );
         validationError = error;
       }
     }

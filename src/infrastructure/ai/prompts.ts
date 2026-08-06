@@ -8,7 +8,7 @@ import type {
   AxisAssessmentsInput,
   OverallSelfAnalysisInput,
   SelfAnalysisReportInput,
-} from "./types";
+} from "./types.ts";
 
 export function buildCompanyFactsPrompt(input: CompanyFactsInput): { system: string; user: string } {
   return {

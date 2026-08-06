@@ -4,12 +4,12 @@ import { stdin as input, stdout as output } from "node:process";
 import {
   LmStudioPolarisAiGateway,
   PolarisAiError,
-} from "@/infrastructure/ai/lm-studio-ai-gateway";
+} from "../src/infrastructure/ai/lm-studio-ai-gateway.ts";
 import type {
   ConversationMessage,
   ExperienceType,
   SelfAnalysisAxis,
-} from "@/infrastructure/ai/types";
+} from "../src/infrastructure/ai/types.ts";
 
 const experienceTypes: Array<{
   value: ExperienceType;
