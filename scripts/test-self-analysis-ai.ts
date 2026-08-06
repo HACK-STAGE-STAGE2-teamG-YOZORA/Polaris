@@ -41,9 +41,9 @@ try {
   const turn = await ai.createChatTurn({
     session: {
       id: randomUUID(),
-      focusAreas: ["CAN", "WANT", "ENERGY", "CONTEXT"],
+      targetAxes: ["ENERGY_SOURCE", "ACTION_STYLE", "SATISFACTION_SOURCE", "PREFERRED_ENVIRONMENT"],
       coveredExperienceTypes: [],
-      missingAreas: ["CAN", "WANT", "ENERGY", "CONTEXT"],
+      missingAxes: ["ENERGY_SOURCE", "ACTION_STYLE", "SATISFACTION_SOURCE", "PREFERRED_ENVIRONMENT"],
     },
     messages,
   });

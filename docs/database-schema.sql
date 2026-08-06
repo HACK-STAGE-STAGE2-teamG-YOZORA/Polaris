@@ -25,6 +25,7 @@ CREATE TABLE messages (
     'CONTRADICTION', 'CONFIRMATION'
   )),
   evidence_candidates_json TEXT,
+  turn_metadata_json TEXT,
   client_message_id TEXT UNIQUE,
   created_at TEXT NOT NULL
 );
@@ -35,6 +36,7 @@ CREATE INDEX idx_messages_session_created
 CREATE TABLE experiences (
   id TEXT PRIMARY KEY,
   source_session_id TEXT REFERENCES analysis_sessions(id) ON DELETE SET NULL,
+  source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   type TEXT NOT NULL CHECK (type IN (
     'ENGAGED', 'ACHIEVEMENT', 'CHALLENGE', 'DRAINING_SUCCESS',
     'TEAM_CONFLICT', 'OTHER'
@@ -59,6 +61,7 @@ CREATE TABLE experiences (
 );
 
 CREATE INDEX idx_experiences_status ON experiences(status);
+CREATE INDEX idx_experiences_source_message ON experiences(source_message_id);
 
 CREATE TABLE experience_quotes (
   id TEXT PRIMARY KEY,
@@ -192,6 +195,7 @@ CREATE TABLE company_sources (
   source_url TEXT,
   raw_text TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  unknown_items_json TEXT NOT NULL DEFAULT '[]',
   retrieved_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );

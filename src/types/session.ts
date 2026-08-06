@@ -1,35 +1,21 @@
-import type { AnalysisSessionStatus, SelfAnalysisAxis } from './dashboard';
+import type { SelfAnalysisAxis } from './dashboard';
 
 export type MessageRole = 'USER' | 'ASSISTANT';
-
 export type QuestionTarget =
-  | 'ENERGY_SOURCE'
-  | 'ACTION_STYLE'
-  | 'SATISFACTION_SOURCE'
-  | 'PREFERRED_ENVIRONMENT'
+  | SelfAnalysisAxis
   | 'EXPERIENCE_DETAIL'
   | 'CONTRADICTION'
   | 'CONFIRMATION';
 
 export interface CreateAnalysisSessionRequest {
-  startMode?: 'START_NEW' | 'RESTART_ACTIVE';
+  startMode: 'START_NEW' | 'RESTART_ACTIVE';
   title?: string;
   targetAxes?: SelfAnalysisAxis[];
 }
 
 export interface SendMessageRequest {
-  role?: MessageRole;
   content: string;
   clientMessageId?: string;
-  questionTarget?: QuestionTarget;
-  evidenceCandidates?: any;
-}
-
-export interface UpdateAnalysisSessionStatusRequest {
-  status: AnalysisSessionStatus;
-  title?: string;
-  /** FAILED 遷移時にサーバーログへ記録するエラー理由（任意）。レスポンスには含まれない。 */
-  failureReason?: string;
 }
 
 export interface ChatMessageResponse {
@@ -37,8 +23,15 @@ export interface ChatMessageResponse {
   sessionId: string;
   role: MessageRole;
   content: string;
-  questionTarget?: QuestionTarget | null;
-  evidenceCandidates?: any;
-  clientMessageId?: string | null;
+  questionTarget: QuestionTarget | null;
   createdAt: string;
+}
+
+export interface ChatTurnResponse {
+  userMessage: ChatMessageResponse;
+  assistantMessage: ChatMessageResponse;
+  evidenceCandidates: unknown[];
+  experienceReady: boolean;
+  missingAxes: SelfAnalysisAxis[];
+  completionIntent: 'NONE' | 'SUGGESTED';
 }

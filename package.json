@@ -37,5 +37,10 @@
     "@types/react-dom": "^19.2.4",
     "prisma": "^7.9.1",
     "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "@prisma/adapter-better-sqlite3": {
+      "better-sqlite3": "$better-sqlite3"
+    }
   }
 }

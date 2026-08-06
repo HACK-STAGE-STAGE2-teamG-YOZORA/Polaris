@@ -6,6 +6,7 @@
 - JSONのキーは`camelCase`、DB列は`snake_case`。
 - IDはUUID v4を基本とし、APIでは文字列として扱う。
 - 日時は保存時UTC、APIはISO 8601の`date-time`。画面だけで端末ローカル時刻へ変換する。
+- `completedAt`、`confirmedAt`、`companyId`、`targetRole`など、未設定自体に意味がある成功レスポンス項目は省略せず`null`を返し、OpenAPIでもnullableとして定義する。
 - 成功レスポンスはリソースまたは`items`を直接返し、不要な`data`ラッパーを付けない。
 - エラーは`application/problem+json`とし、OpenAPIの`ErrorResponse`を使う。
 - `clientMessageId`付きチャット送信は冪等。同じIDの再送では同じ保存済み結果を返す。
@@ -98,6 +99,7 @@ URL取り込みを実装する場合は、文字列のホスト名検査だけ�
 
 - ユーザーメッセージ、AIメッセージ、未確認の軸根拠候補
 - 経験カード、経験引用、確認時に昇格する正式な軸根拠
+- 経験の任意`sourceMessageId`と、指定時の同一セッションUSER発言チェック
 - 4軸分析と軸根拠リンク
 - 「初めから」選択時の旧セッション`ABANDONED`化と新規セッション作成
 - finalize時のセッション完了と自己分析レポートスナップショット
