@@ -3,6 +3,7 @@ import { loadPolarisAiConfig } from "./config.ts";
 import {
   buildChatTurnPrompt,
   buildCompanyFactsPrompt,
+  buildCompanyRecommendationsPrompt,
   buildExperienceDraftPrompt,
   buildExperienceGroundingPrompt,
   buildEsAnalysisPrompt,
@@ -22,6 +23,8 @@ import type {
   ChatTurnOutput,
   CompanyFactsInput,
   CompanyFactsOutput,
+  CompanyRecommendationsInput,
+  CompanyRecommendationsOutput,
   ExperienceDraftInput,
   ExperienceDraftOutput,
   ExperienceGroundingField,
@@ -48,6 +51,7 @@ type StructuredTaskOptions<T> = {
   timeoutMs: number;
   beforeValidation?: (output: unknown) => void;
   afterValidation?: (output: T) => void;
+  customizeGenerationSchema?: (schema: Record<string, any>) => void;
 };
 
 export class PolarisAiError extends Error {
@@ -422,6 +426,61 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     });
   }
 
+  async recommendCompanies(input: CompanyRecommendationsInput): Promise<CompanyRecommendationsOutput> {
+    const prompt = buildCompanyRecommendationsPrompt(input);
+    const companyById = new Map(input.companies.map((company) => [company.id, company]));
+    const experienceIds = new Set(input.confirmedExperiences.map((experience) => experience.id));
+
+    return this.#runStructuredTask<CompanyRecommendationsOutput>({
+      schemaFileName: 'company-recommendations-output.schema.json',
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        const recommendationProperties = schema.properties.recommendations.items.properties;
+        const excludedProperties = schema.properties.excludedCompanies.items.properties;
+        const companyIds = input.companies.map((company) => company.id);
+        recommendationProperties.companyId.enum = companyIds;
+        excludedProperties.companyId.enum = companyIds;
+        recommendationProperties.connectedExperienceIds.items.enum = [...experienceIds];
+        recommendationProperties.companySourceIds.items.enum = input.companies.flatMap(
+          (company) => company.sources.map((source) => source.id),
+        );
+      },
+      afterValidation: (output) => {
+        const recommendationCompanyIds = output.recommendations.map((item) => item.companyId);
+        if (new Set(recommendationCompanyIds).size !== recommendationCompanyIds.length) {
+          throw new Error('同じ企業を複数提案できません。');
+        }
+        const excludedCompanyIds = output.excludedCompanies.map((item) => item.companyId);
+        if (new Set(excludedCompanyIds).size !== excludedCompanyIds.length) {
+          throw new Error('同じ企業を複数回除外できません。');
+        }
+        if (excludedCompanyIds.some((id) => recommendationCompanyIds.includes(id))) {
+          throw new Error('同じ企業を提案と除外の両方へ含めることはできません。');
+        }
+        for (const recommendation of output.recommendations) {
+          const company = companyById.get(recommendation.companyId);
+          if (!company) throw new Error(`候補外の企業IDです: ${recommendation.companyId}`);
+          if (recommendation.connectedExperienceIds.some((id) => !experienceIds.has(id))) {
+            throw new Error(`未確認または存在しない経験IDが含まれます: ${recommendation.companyId}`);
+          }
+          const sourceIds = new Set(company.sources.map((source) => source.id));
+          if (recommendation.companySourceIds.some((id) => !sourceIds.has(id))) {
+            throw new Error(`企業に属さない出典IDが含まれます: ${recommendation.companyId}`);
+          }
+        }
+        for (const excluded of output.excludedCompanies) {
+          if (!companyById.has(excluded.companyId)) {
+            throw new Error(`候補外の除外企業IDです: ${excluded.companyId}`);
+          }
+        }
+      },
+    });
+  }
+
   async analyzeEs(input: EsAnalysisInput): Promise<EsAnalysisOutput> {
     const prompt = buildEsAnalysisPrompt(input);
 
@@ -539,6 +598,10 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     options: StructuredTaskOptions<T>,
   ): Promise<T> {
     const schema = await loadAiSchema<T>(options.schemaFileName);
+    const generationSchema = options.customizeGenerationSchema
+      ? structuredClone(schema.generationSchema)
+      : schema.generationSchema;
+    options.customizeGenerationSchema?.(generationSchema);
     const timeoutSignal = AbortSignal.timeout(options.timeoutMs);
 
     let model;
@@ -582,7 +645,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
         const result = await model.respond(chat, {
           structured: {
             type: "json",
-            jsonSchema: schema.generationSchema,
+            jsonSchema: generationSchema,
           },
           temperature: options.temperature,
           maxTokens: options.maxTokens,

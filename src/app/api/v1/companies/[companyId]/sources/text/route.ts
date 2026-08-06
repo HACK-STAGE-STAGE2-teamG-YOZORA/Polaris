@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
 import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm-studio-ai-gateway';
 import { prisma } from '@/lib/prisma';
 import { aiError, internalError, jsonBody, problem } from '@/server/api';
-import { formatCompanyFact, formatCompanySource, validHttpUrl } from '@/server/company';
+import { formatCompanyFact, formatCompanySource, persistCompanySource, validHttpUrl } from '@/server/company';
 
 type Context = { params: Promise<{ companyId: string }> };
 
@@ -35,21 +34,14 @@ export async function POST(request: Request, context: Context): Promise<Response
         text: sourceText,
       },
     });
-    const retrievedAt = new Date();
-    const source = await prisma.companySource.create({
-      data: {
-        companyId,
-        type: 'TEXT',
-        trustLevel,
-        title,
-        sourceUrl: typeof body?.sourceUrl === 'string' ? body.sourceUrl : null,
-        rawText: sourceText,
-        contentHash: createHash('sha256').update(sourceText).digest('hex'),
-        unknownItems: extracted.unknownItems,
-        retrievedAt,
-        facts: { create: extracted.facts.map((fact) => ({ category: fact.category as never, fact: fact.fact, evidenceQuote: fact.evidenceQuote })) },
-      },
-      include: { facts: true },
+    const source = await persistCompanySource({
+      companyId,
+      type: 'TEXT',
+      trustLevel,
+      title,
+      sourceUrl: typeof body?.sourceUrl === 'string' ? body.sourceUrl : null,
+      text: sourceText,
+      extracted,
     });
     return Response.json({
       source: formatCompanySource(source),

@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import type { CompanyFactsOutput } from '@/infrastructure/ai/types';
+import { prisma } from '@/lib/prisma';
 import { iso, stringArray } from './api';
 
 type CompanyRecord = {
@@ -89,4 +92,49 @@ export function validHttpUrl(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+export async function persistCompanySource(options: {
+  companyId: string;
+  type: 'URL' | 'TEXT';
+  trustLevel: 'OFFICIAL' | 'USER_PROVIDED_UNVERIFIED';
+  title: string;
+  sourceUrl: string | null;
+  text: string;
+  extracted: CompanyFactsOutput;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const source = await tx.companySource.create({
+      data: {
+        companyId: options.companyId,
+        type: options.type,
+        trustLevel: options.trustLevel,
+        title: options.title,
+        sourceUrl: options.sourceUrl,
+        rawText: options.text,
+        contentHash: createHash('sha256').update(options.text).digest('hex'),
+        unknownItems: options.extracted.unknownItems,
+        retrievedAt: new Date(),
+        facts: {
+          create: options.extracted.facts.map((fact) => ({
+            category: fact.category as never,
+            fact: fact.fact,
+            evidenceQuote: fact.evidenceQuote,
+          })),
+        },
+      },
+      include: { facts: true },
+    });
+
+    await tx.esAnalysis.updateMany({
+      where: { freshness: 'CURRENT', document: { companyId: options.companyId } },
+      data: { freshness: 'STALE' },
+    });
+    await tx.esRevision.updateMany({
+      where: { freshness: 'CURRENT', document: { companyId: options.companyId } },
+      data: { freshness: 'STALE' },
+    });
+
+    return source;
+  });
 }
