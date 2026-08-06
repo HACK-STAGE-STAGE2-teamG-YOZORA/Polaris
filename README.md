@@ -4,7 +4,7 @@
 
 実装前に[設計ドキュメント](./docs/README.md)と[OpenAPI仕様](./docs/openapi.yaml)を確認してください。
 
-現在は、LM Studioを使うAIコアの最初の縦方向実装まで動作します。Next.js画面、API、DB永続化は未実装です。
+現在は、LM Studioを使うAI Adapter、Next.js Route Handler、Prisma／SQLite永続化まで実装されています。画面は統合途中です。
 
 ## 現在動くもの
 
@@ -14,6 +14,16 @@
 - 確認済み経験からのCAN／WANT／ENERGY／CONTEXT仮説生成
 - 本人経験・企業事実に基づくES検査、推敲、再検査
 - AI出力のJSON Schema、参照ID、引用原文の検証
+- `/api/v1`の自己分析、経験、4軸、総合プロフィール、ES検査・推敲API
+- Prisma／SQLiteによるセッション、根拠、分析結果の永続化
+
+## 初回セットアップ
+
+```powershell
+npm.cmd install
+npm.cmd run prisma:generate
+npm.cmd run db:push
+```
 
 ## LM Studioで試す
 
@@ -39,8 +49,17 @@ npm.cmd run self-analysis
 
 ```powershell
 npm.cmd run typecheck
+npm.cmd run test:contracts
+npm.cmd run test:ai-schema
 npm.cmd run test:self-analysis-ai
 npm.cmd run test:career-ai
+npm.cmd run test:ai-p0
 ```
+
+`test:ai-p0`は、一時SQLite DBと一時ポートのNext.jsサーバーを自動作成し、次をHTTP経由で検証して終了時に削除します。
+
+- 自己分析チャット、冪等再送、経験抽出・確認、4軸生成・本人評価、レポート確定、総合分析
+- ES原文検査、完成版生成、推敲後の独立再検査
+- `AI_TIMEOUT`、`AI_INVALID_OUTPUT`、`AI_UNAVAILABLE`と、失敗時に部分データを保存しないこと
 
 AI Adapterは[`src/infrastructure/ai`](./src/infrastructure/ai/)にあり、Web実装時はRoute Handlerから直接プロンプトを呼ばず、`LmStudioPolarisAiGateway`をApplication Service経由で利用します。

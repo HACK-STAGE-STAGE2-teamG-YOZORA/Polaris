@@ -24,10 +24,11 @@ export function problem(
 ): Response {
   return Response.json(
     {
+      requestId: crypto.randomUUID(),
       code,
       message,
       retryable: options.retryable ?? false,
-      ...(options.details ? { details: options.details } : {}),
+      details: options.details ?? [],
     },
     { status, headers: { 'content-type': 'application/problem+json' } },
   );
@@ -45,6 +46,9 @@ export function aiError(error: unknown): Response {
     }
     if (error.code === 'AI_INVALID_OUTPUT') {
       return problem(502, 'AI_INVALID_OUTPUT', error.message, { retryable: true });
+    }
+    if (error.code === 'AI_TIMEOUT') {
+      return problem(504, 'AI_TIMEOUT', error.message, { retryable: true });
     }
     return problem(503, 'AI_UNAVAILABLE', error.message, { retryable: true });
   }

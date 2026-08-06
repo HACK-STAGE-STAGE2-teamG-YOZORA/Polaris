@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { LmStudioPolarisAiGateway } from "@/infrastructure/ai/lm-studio-ai-gateway";
-import { filterAndRecoverMessageQuotes } from "@/infrastructure/ai/quotes";
-import type { ConversationMessage } from "@/infrastructure/ai/types";
+import { LmStudioPolarisAiGateway } from "../src/infrastructure/ai/lm-studio-ai-gateway.ts";
+import { filterAndRecoverMessageQuotes } from "../src/infrastructure/ai/quotes.ts";
+import type { ConversationMessage } from "../src/infrastructure/ai/types.ts";
 
 const ai = new LmStudioPolarisAiGateway();
 const userMessageId = randomUUID();

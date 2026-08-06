@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { LmStudioPolarisAiGateway } from "@/infrastructure/ai/lm-studio-ai-gateway";
+import { LmStudioPolarisAiGateway } from "../src/infrastructure/ai/lm-studio-ai-gateway.ts";
 import type {
   ConfirmedExperience,
   EsAnalysisInput,
   AxisEvidence,
-} from "@/infrastructure/ai/types";
+} from "../src/infrastructure/ai/types.ts";
 
 const ai = new LmStudioPolarisAiGateway();
 

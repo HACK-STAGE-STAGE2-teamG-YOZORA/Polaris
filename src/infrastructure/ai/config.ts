@@ -1,4 +1,4 @@
-import type { PolarisAiConfig } from "./types";
+import type { PolarisAiConfig } from "./types.ts";
 
 function readNumber(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -11,6 +11,16 @@ function readNumber(name: string, fallback: number): number {
 
   if (!Number.isFinite(value)) {
     throw new Error(`${name}には数値を設定してください。`);
+  }
+
+  return value;
+}
+
+function readPositiveInteger(name: string, fallback: number): number {
+  const value = Math.trunc(readNumber(name, fallback));
+
+  if (value < 1) {
+    throw new Error(`${name}には1以上の整数を設定してください。`);
   }
 
   return value;
@@ -36,6 +46,8 @@ export function loadPolarisAiConfig(): PolarisAiConfig {
     taskMaxTokens: Math.trunc(
       readNumber("AI_MAX_OUTPUT_TOKENS", 4096),
     ),
+    chatTimeoutMs: readPositiveInteger("AI_CHAT_TIMEOUT_MS", 60_000),
+    taskTimeoutMs: readPositiveInteger("AI_TASK_TIMEOUT_MS", 120_000),
     repairAttempts: Math.max(
       0,
       Math.trunc(readNumber("AI_JSON_REPAIR_MAX_ATTEMPTS", 1)),
