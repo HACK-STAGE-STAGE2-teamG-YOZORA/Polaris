@@ -176,6 +176,26 @@ await withE2eServer(async ({ request }) => {
 
   console.log("[3/4] ES検査、完成版生成、独立再検査を検証します。");
 
+  const company = expectStatus(await request('/api/v1/companies', {
+    method: 'POST',
+    body: {
+      name: 'Polarisデモ株式会社',
+      targetRole: 'Webエンジニア',
+      officialUrl: 'https://example.com',
+    },
+  }), 201, 'create ES company');
+  const companyId = text(company.id, 'company.id');
+  const companyImport = expectStatus(await request(`/api/v1/companies/${companyId}/sources/text`, {
+    method: 'POST',
+    body: {
+      title: '公式採用方針',
+      sourceUrl: 'https://example.com/careers',
+      trustLevel: 'OFFICIAL',
+      text: '公式採用ページでは、職種を越えた協働と、根拠を明確にした設計レビューを重視すると説明しています。',
+    },
+  }), 201, 'import company text');
+  assert(items(companyImport.facts, 'companyImport.facts').length > 0, '企業公式情報から事実を抽出できませんでした。');
+
   expectProblem(await request("/api/v1/es-documents", {
     method: "POST",
     body: {
@@ -189,11 +209,11 @@ await withE2eServer(async ({ request }) => {
   const esDocument = expectStatus(await request("/api/v1/es-documents", {
     method: "POST",
     body: {
-      companyId: null,
+      companyId,
       targetRole: "Webエンジニア",
       question: "チームで取り組んだ経験を300字以内で説明してください。",
-      characterLimit: 300,
-      originalText: experienceStory,
+      characterLimit: 500,
+      originalText: `${experienceStory}この経験を生かし、職種を越えた協働を重視する貴社でも、根拠を明確にした設計レビューへ貢献したいです。`,
       preferredExperienceIds: [experienceId],
       emphasis: ["役割", "行動", "結果"],
     },
@@ -224,6 +244,7 @@ await withE2eServer(async ({ request }) => {
   }), 201, "verify revision");
   assert(verification.revisionId === revisionId, "再検査が推敲案を参照していません。");
   assert(verification.sourceKind === "REVISION", "推敲後の独立再検査になっていません。");
+  assert(verification.submissionReadiness === 'READY_TO_SUBMIT', '再検査後も提出可能状態になっていません。');
 
   console.log("[4/4] セッション境界と未確定状態の異常系を検証します。");
 
@@ -237,6 +258,64 @@ await withE2eServer(async ({ request }) => {
     body: { experienceType: "ENGAGED", messageIds: [userMessageId] },
   }), 422, "VALIDATION_ERROR", "cross-session message");
   expectProblem(await request(`/api/v1/analysis-sessions/${secondSessionId}/finalize`, { method: "POST" }), 409, "CONFLICT", "empty second session finalize");
+
+  const secondTurn = expectStatus(await request(`/api/v1/analysis-sessions/${secondSessionId}/messages`, {
+    method: 'POST',
+    body: {
+      content: '今回はまだ具体的な経験を整理できていませんが、まず考え方の傾向だけ確認したいです。',
+      clientMessageId: randomUUID(),
+    },
+  }), 200, 'second session message');
+  assert(object(secondTurn.userMessage, 'secondTurn.userMessage').role === 'USER', '2件目セッションの回答が保存されませんでした。');
+  const sparseAxes = expectStatus(await request(`/api/v1/analysis-sessions/${secondSessionId}/axis-assessments/generate`, {
+    method: 'POST',
+  }), 200, 'generate axes without confirmed experience');
+  const sparseAssessments = items(sparseAxes.items, 'sparse axes');
+  assert(sparseAssessments.length === 4, '根拠不足時にも4軸が生成されませんでした。');
+  assert(sparseAssessments.every((assessment) => assessment.position === 'INSUFFICIENT_EVIDENCE'), '経験0件の軸が根拠不足になっていません。');
+  for (const assessment of sparseAssessments) {
+    expectStatus(await request(`/api/v1/axis-assessments/${text(assessment.id, 'sparse assessment.id')}`, {
+      method: 'PATCH',
+      body: { assessment: 'NEEDS_EXPLORATION', note: '根拠不足を確認済み' },
+    }), 200, 'review sparse axis');
+  }
+  const sparseReport = expectStatus(await request(`/api/v1/analysis-sessions/${secondSessionId}/finalize`, {
+    method: 'POST',
+  }), 200, 'finalize session without confirmed experience');
+  assert(sparseReport.confirmedExperienceCount === 0, '経験0件のセッションレポートに経験が混入しました。');
+
+  const twoSessionProfile = expectStatus(await request('/api/v1/overall-self-analysis/recompute', {
+    method: 'POST',
+  }), 200, 'recompute two-session profile');
+  assert(object(twoSessionProfile.dataSummary, 'twoSessionProfile.dataSummary').completedSessionCount === 2, '複数セッションが総合分析へ集計されませんでした。');
+
+  for (const index of [2, 3]) {
+    const manual = expectStatus(await request('/api/v1/experiences', {
+      method: 'POST',
+      body: {
+        type: index === 2 ? 'CHALLENGE' : 'ENGAGED',
+        title: `追加確認経験${index}`,
+        situation: `デモ用の確認済み経験${index}です。`,
+        role: '本人',
+        options: [],
+        actions: [`行動${index}を実施した`],
+        energyChange: 1,
+        environment: ['デモ環境'],
+      },
+    }), 201, `create manual experience ${index}`);
+    expectStatus(await request(`/api/v1/experiences/${text(manual.id, 'manual experience.id')}`, {
+      method: 'PATCH',
+      body: { status: 'CONFIRMED' },
+    }), 200, `confirm manual experience ${index}`);
+  }
+
+  const enoughDataProfile = expectStatus(await request('/api/v1/overall-self-analysis/recompute', {
+    method: 'POST',
+  }), 200, 'recompute enough-data profile');
+  const enoughDataSummary = object(enoughDataProfile.dataSummary, 'enoughDataProfile.dataSummary');
+  assert(enoughDataSummary.completedSessionCount === 2, '十分データ時の完了セッション数が不正です。');
+  assert(enoughDataSummary.confirmedExperienceCount === 3, '十分データ時の確認済み経験数が不正です。');
+  assert(enoughDataSummary.isDataSparse === false, 'ADR-032のデータ十分状態へ遷移しませんでした。');
 
   console.log("P0自己分析・ES E2Eテスト成功");
 });

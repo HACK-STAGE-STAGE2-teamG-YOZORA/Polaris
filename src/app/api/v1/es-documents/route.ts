@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { internalError, jsonBody, problem } from '@/server/api';
+import { countCodePoints, internalError, jsonBody, problem } from '@/server/api';
 import { esDocumentInclude, formatEsDocument, formatEsSummary, validatePreferredExperiences } from '@/server/es';
 
 function stringList(value: unknown): value is string[] {
@@ -22,16 +22,16 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const body = await jsonBody(request);
-    if (!body || typeof body.question !== 'string' || !body.question.trim() || body.question.length > 5000) {
+    if (!body || typeof body.question !== 'string' || !body.question.trim() || countCodePoints(body.question) > 5000) {
       return problem(422, 'VALIDATION_ERROR', 'question は1〜5000文字で指定してください。');
     }
     if (!Number.isInteger(body.characterLimit) || Number(body.characterLimit) < 1 || Number(body.characterLimit) > 10_000) {
       return problem(422, 'VALIDATION_ERROR', 'characterLimit は1〜10000の整数で指定してください。');
     }
-    if (typeof body.originalText !== 'string' || !body.originalText.trim() || body.originalText.length > 20_000) {
+    if (typeof body.originalText !== 'string' || !body.originalText.trim() || countCodePoints(body.originalText) > 20_000) {
       return problem(422, 'VALIDATION_ERROR', 'originalText は1〜20000文字で指定してください。');
     }
-    if (body.targetRole !== undefined && body.targetRole !== null && (typeof body.targetRole !== 'string' || body.targetRole.length > 200)) {
+    if (body.targetRole !== undefined && body.targetRole !== null && (typeof body.targetRole !== 'string' || countCodePoints(body.targetRole) > 200)) {
       return problem(422, 'VALIDATION_ERROR', 'targetRole は200文字以内または null で指定してください。');
     }
     if (body.emphasis !== undefined && !stringList(body.emphasis)) return problem(422, 'VALIDATION_ERROR', 'emphasis は文字列配列で指定してください。');

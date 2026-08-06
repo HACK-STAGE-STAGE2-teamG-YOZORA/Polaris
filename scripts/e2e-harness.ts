@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
+import { validateOpenApiResponse } from './openapi-contract.ts';
 
 export type ApiResult = {
   status: number;
@@ -13,7 +14,7 @@ export type E2eContext = {
   baseUrl: string;
   request: (
     path: string,
-    options?: { method?: string; body?: unknown },
+    options?: { method?: string; body?: unknown; formData?: FormData },
   ) => Promise<ApiResult>;
 };
 
@@ -148,10 +149,11 @@ export async function withE2eServer(
     await waitForServer(baseUrl, child, recentLogs);
 
     const request: E2eContext["request"] = async (path, options = {}) => {
+      const method = options.method ?? "GET";
       const response = await fetch(`${baseUrl}${path}`, {
-        method: options.method ?? "GET",
+        method,
         headers: options.body === undefined ? undefined : { "content-type": "application/json" },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body: options.formData ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
         signal: AbortSignal.timeout(180_000),
       });
       const text = await response.text();
@@ -163,11 +165,13 @@ export async function withE2eServer(
           body = text;
         }
       }
-      return {
+      const result = {
         status: response.status,
         body,
         contentType: response.headers.get("content-type"),
       };
+      await validateOpenApiResponse(method, path, result);
+      return result;
     };
 
     try {
