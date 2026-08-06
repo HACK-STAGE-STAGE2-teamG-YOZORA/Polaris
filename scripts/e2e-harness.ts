@@ -99,6 +99,7 @@ async function stopServer(child: ChildProcess): Promise<void> {
 export async function withE2eServer(
   test: (context: E2eContext) => Promise<void>,
   overrides: Record<string, string> = {},
+  setup?: (databaseUrl: string) => Promise<void>,
 ): Promise<void> {
   const tempParent = resolve(".tmp");
   await mkdir(tempParent, { recursive: true });
@@ -125,6 +126,7 @@ export async function withE2eServer(
       ["db", "push"],
       env,
     );
+    if (setup) await setup(env.DATABASE_URL as string);
 
     const output: string[] = [];
     child = spawn(

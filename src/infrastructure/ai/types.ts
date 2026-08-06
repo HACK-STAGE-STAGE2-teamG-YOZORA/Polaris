@@ -253,6 +253,55 @@ export type CompanyFactsOutput = {
   unknownItems: string[];
 };
 
+export type CompanyRecommendationsInput = {
+  selfAnalysisReport: {
+    id: string;
+    summary: string;
+    axisSnapshots: unknown;
+    mustConditions: unknown;
+    preferConditions: unknown;
+    avoidConditions: unknown;
+    verifyConditions: unknown;
+  };
+  confirmedExperiences: Array<{
+    id: string;
+    title: string;
+    type: string;
+    situation: string;
+    role: string;
+    actions: string[];
+    result: string | null;
+  }>;
+  targetRoles: string[];
+  preferredLocations: string[];
+  companies: Array<{
+    id: string;
+    name: string;
+    targetRole: string | null;
+    sources: Array<{
+      id: string;
+      url: string | null;
+      facts: Array<{ id: string; category: string; fact: string; evidenceQuote: string }>;
+    }>;
+  }>;
+};
+
+export type CompanyRecommendationsOutput = {
+  recommendations: Array<{
+    companyId: string;
+    slot: 'PRIMARY' | 'CHALLENGE' | 'UNEXPECTED';
+    recommendedRole: string | null;
+    rationale: string;
+    connectedExperienceIds: string[];
+    matchingConditions: string[];
+    concerns: string[];
+    unknowns: string[];
+    verificationQuestions: string[];
+    companySourceIds: string[];
+  }>;
+  excludedCompanies: Array<{ companyId: string; reason: string }>;
+};
+
 export type SourceEvidence = {
   sourceType: "EXPERIENCE" | "COMPANY_FACT";
   sourceId: string;
