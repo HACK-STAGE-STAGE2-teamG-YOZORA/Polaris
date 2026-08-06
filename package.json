@@ -18,6 +18,7 @@
     "test:p1-e2e": "node --env-file=.env scripts/test-p1-e2e.ts",
     "test:ai-stability-unit": "node scripts/test-overall-output-safety.ts",
     "test:ai-stability-live": "node --env-file=.env scripts/test-overall-ai-stability.ts",
+    "test:ci": "npm run typecheck -- --incremental false && npm run typecheck:scripts && npm run test:contracts && npm run test:ai-schema && npm run test:ai-stability-unit && npm run test:p1-units",
     "test:ai-stable": "npm run typecheck && npm run typecheck:scripts && npm run test:contracts && npm run test:ai-schema && npm run test:ai-stability-unit && npm run test:ai-stability-live",
     "test:ai-p1": "npm run typecheck && npm run typecheck:scripts && npm run test:contracts && npm run test:ai-schema && npm run test:p1-units && npm run test:p1-e2e",
     "test:ai-p0": "npm run typecheck && npm run typecheck:scripts && npm run test:contracts && npm run test:ai-schema && npm run test:p0-e2e && npm run test:ai-errors",
