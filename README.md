@@ -21,9 +21,12 @@
 
 ```powershell
 npm.cmd install
+Copy-Item .env.example .env
 npm.cmd run prisma:generate
 npm.cmd run db:push
 ```
+
+`.env`の`LM_STUDIO_MODEL_ID`は、LM Studioで実際にロードするモデルIDと一致させてください。SQLiteの保存先を変更しない場合、`DATABASE_URL`は`.env.example`の既定値を使用できます。
 
 ## LM Studioで試す
 
