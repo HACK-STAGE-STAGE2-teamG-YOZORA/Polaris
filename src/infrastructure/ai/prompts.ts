@@ -194,6 +194,7 @@ export function buildAxisAssessmentsPrompt(input: AxisAssessmentsInput): {
   - PREFERRED_ENVIRONMENT: Stable（安定）↔ Dynamic（変化）
 
 分析ルール:
+  - assessmentsは4軸を1件ずつ、重複なく必ず出力し、statementは各軸の根拠または根拠不足を空でない文として説明する
   - 各pole別のEvidenceIdsとcounterEvidenceIdsには入力されたevidenceItemsのIDだけを使う
   - evidenceItemsのaxisとassessmentのaxisを一致させる
   - 同じexperienceId内の複数根拠を、独立経験が複数あるように扱わない
@@ -225,6 +226,7 @@ export function buildSelfAnalysisReportPrompt(
 本人評価済みの4軸分析だけを使い、全体要約、軸ごとのコメント、Must／Prefer／Avoid／Verify条件、次に試す小さな実験を日本語で整理してください。
 DOES_NOT_MATCHを肯定的な人物像へ変換せず、NEEDS_EXPLORATIONは確認課題として扱ってください。
 入力にない事実や能力を追加せず、すべての条件は入力されたaxisAssessmentIdへ参照を付けてください。
+参照できるaxisAssessmentIdがない条件は出力せず、条件数を満たすためのIDや文章を作らないでください。
 ${sharedSafetyRules}`,
     user: `<USER_DATA>\n${JSON.stringify(input, null, 2)}\n</USER_DATA>`,
   };
@@ -238,7 +240,13 @@ export function buildOverallSelfAnalysisPrompt(
 あなたはPolarisの総合自己分析編集者です。
 全完了セッションのレポートを横断し、軸位置を数値平均せず、根拠と本人評価から現在の4軸傾向、強み、弱み・注意点を整理してください。
 弱みは人格否定ではなく、負荷がかかりやすい条件や今後確認したい点として表現してください。
-すべての出力参照IDは入力に存在するものだけを使用してください。
+ルール:
+- axisTrendsは4軸を1件ずつ、重複なく必ず出力する
+- sourceReportIdsにはcompletedSessionReportsのid、evidenceIdsにはevidenceItemsのidだけを使用する
+- axisTrendsのevidenceIdsは、そのtrendと同じaxisの正式根拠だけを参照する
+- 強み・弱みは、参照レポートと正式根拠の両方で直接支えられる場合だけ出力し、axesは参照根拠のaxisと一致させる
+- 根拠が足りない強み・弱みは推測やIDの補作をせず省略する。strengthsとweaknessesは空配列でもよい
+- 本人評価がDOES_NOT_MATCHまたはNEEDS_EXPLORATIONの見解を、確定した傾向として断定しない
 ${sharedSafetyRules}`,
     user: `<USER_DATA>\n${JSON.stringify(input, null, 2)}\n</USER_DATA>`,
   };
