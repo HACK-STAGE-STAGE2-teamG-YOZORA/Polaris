@@ -93,12 +93,14 @@ http://127.0.0.1:1234
 
 | タスク | Temperature | Thinking | 最大出力 |
 |---|---:|---|---:|
-| 自己分析の自然な質問 | 0.6 | Off | 1,000 tokens |
+| 自己分析の自然な質問 | 0.6 | Off | 1,200 tokens |
 | 経験・仮説・企業事実抽出 | 0.1 | Off | 4,096 tokens |
 | ES主張検査 | 0.1 | Off | 4,096 tokens |
 | ES推敲 | 0.3 | Off | 4,096 tokens |
 
 構造化出力では必ず`maxTokens`を指定する。出力上限到達で中断したJSONは不正結果として破棄する。
+
+現在の既定値は`.env.example`の`AI_CHAT_MAX_TOKENS=1200`と`AI_MAX_OUTPUT_TOKENS=4096`で管理する。
 
 ## 6. 採用前評価
 

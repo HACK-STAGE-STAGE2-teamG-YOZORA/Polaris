@@ -37,6 +37,8 @@ PrismaはNode.js runtimeで使用し、Edge runtimeへ配置しない。
 
 ## 3. コンポーネント境界
 
+次の構成は責務分割の目標を示す。ディレクトリ名そのものをHTTP契約として扱わない。
+
 ```text
 src/
   app/
@@ -61,6 +63,22 @@ src/
 ```
 
 Route Handlerへプロンプト、SQL、業務判定を直接書かない。AIが行うのは抽出・言語化であり、状態判定、文字数、参照整合性はTypeScript側が決定する。
+
+### 現在の実装配置
+
+P0時点では、上記のApplication Service／Domain相当の決定的処理を`src/server`へまとめている。現在の主な対応は次のとおり。
+
+| 責務 | 現在の配置 |
+|---|---|
+| HTTP変換 | `src/app/api/v1/**/route.ts` |
+| 状態判定・文字数・レスポンス整形・ES処理 | `src/server` |
+| LM Studio Adapter・プロンプト・Schema検証 | `src/infrastructure/ai` |
+| Prisma Client生成物 | `src/generated/prisma` |
+| Prisma Client初期化 | `src/lib/prisma.ts` |
+| DB正本 | `prisma/schema.prisma` |
+| AI構造化出力契約 | `contracts/ai` |
+
+`src/application`、`src/domain`、`src/infrastructure/fetch`への再分割は、責務が増えて独立テストが必要になった時点で行う。配置変更だけを目的にP0の動作済みコードを一括移動しない。
 
 ## 4. 担当境界
 
