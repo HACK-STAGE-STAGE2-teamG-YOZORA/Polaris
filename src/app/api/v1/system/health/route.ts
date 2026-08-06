@@ -7,7 +7,7 @@ export async function GET(): Promise<Response> {
     const [database, ai] = await Promise.all([
       prisma.$queryRawUnsafe('SELECT 1')
         .then(() => ({ status: 'UP' as const }))
-        .catch((error: unknown) => ({ status: 'DOWN' as const, message: error instanceof Error ? error.message : 'Database unavailable' })),
+        .catch(() => ({ status: 'DOWN' as const, message: 'Database unavailable' })),
       checkLmStudio(),
     ]);
     const aiHealth = ai.status === 'CONNECTED'
