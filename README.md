@@ -28,6 +28,17 @@ npm.cmd run db:push
 
 `.env`の`LM_STUDIO_MODEL_ID`は、LM Studioで実際にロードするモデルIDと一致させてください。SQLiteの保存先を変更しない場合、`DATABASE_URL`は`.env.example`の既定値を使用できます。
 
+## CI
+
+`develop`または`main`へのPull Requestとpushで、GitHub Actionsが次を自動実行します。
+
+```powershell
+npm.cmd run test:ci
+npm.cmd run build
+```
+
+`test:ci`は、型検査、OpenAPI／Prisma／実装の契約検査、AI出力スキーマ検査、AI安定化ユニットテスト、P1ユニットテストをまとめたLM Studio不要の検査です。実モデルを使うE2E・エラー・安定性テストはCIに含めず、LM Studioを起動した開発PCで実行します。
+
 ## LM Studioで試す
 
 前提:
