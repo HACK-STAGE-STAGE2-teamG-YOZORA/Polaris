@@ -1,28 +1,13 @@
 import { prisma } from '@/lib/prisma';
-import { formatReport } from '../route';
+import { internalError, problem } from '@/server/api';
+import { formatReport } from '@/server/formatters';
 
-// GET /api/v1/self-analysis-reports/latest
-export async function GET(_request: Request): Promise<Response> {
+export async function GET(): Promise<Response> {
   try {
-    const reports = await prisma.selfAnalysisAxisReport.findMany({
-      take: 1,
-      orderBy: { createdAt: 'desc' },
-      include: { axisDetails: true },
-    });
-
-    if (!reports || reports.length === 0) {
-      return Response.json(
-        { code: 'NOT_FOUND', message: '自己分析レポートが存在しません。' },
-        { status: 404 }
-      );
-    }
-
-    return Response.json(formatReport(reports[0]), { status: 200 });
+    const report = await prisma.selfAnalysisReport.findFirst({ orderBy: { generatedAt: 'desc' } });
+    if (!report) return problem(404, 'NOT_FOUND', '自己分析レポートがありません。');
+    return Response.json(formatReport(report));
   } catch (error) {
-    console.error('Error fetching latest self-analysis report:', error);
-    return Response.json(
-      { code: 'INTERNAL_ERROR', message: '最新自己分析レポートの取得中にエラーが発生しました。' },
-      { status: 500 }
-    );
+    return internalError(error, '最新自己分析レポートの取得');
   }
 }

@@ -2,11 +2,14 @@ import { Chat, LMStudioClient } from "@lmstudio/sdk";
 import { loadPolarisAiConfig } from "./config";
 import {
   buildChatTurnPrompt,
+  buildCompanyFactsPrompt,
   buildExperienceDraftPrompt,
   buildExperienceGroundingPrompt,
   buildEsAnalysisPrompt,
   buildEsRevisionPrompt,
-  buildHypothesesPrompt,
+  buildAxisAssessmentsPrompt,
+  buildOverallSelfAnalysisPrompt,
+  buildSelfAnalysisReportPrompt,
 } from "./prompts";
 import {
   filterAndRecoverMessageQuotes,
@@ -17,6 +20,8 @@ import { loadAiSchema } from "./schema";
 import type {
   ChatTurnInput,
   ChatTurnOutput,
+  CompanyFactsInput,
+  CompanyFactsOutput,
   ExperienceDraftInput,
   ExperienceDraftOutput,
   ExperienceGroundingField,
@@ -25,9 +30,13 @@ import type {
   EsAnalysisOutput,
   EsRevisionInput,
   EsRevisionOutput,
-  HypothesesInput,
-  HypothesesOutput,
+  AxisAssessmentsInput,
+  AxisAssessmentsOutput,
+  OverallSelfAnalysisInput,
+  OverallSelfAnalysisOutput,
   PolarisAiConfig,
+  SelfAnalysisReportInput,
+  SelfAnalysisReportOutput,
 } from "./types";
 
 type StructuredTaskOptions<T> = {
@@ -237,27 +246,52 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     return draft;
   }
 
-  async generateHypotheses(
-    input: HypothesesInput,
-  ): Promise<HypothesesOutput> {
-    const prompt = buildHypothesesPrompt(input);
+  async generateAxisAssessments(
+    input: AxisAssessmentsInput,
+  ): Promise<AxisAssessmentsOutput> {
+    const prompt = buildAxisAssessmentsPrompt(input);
     const evidenceById = new Map(
       input.evidenceItems.map((evidence) => [evidence.id, evidence]),
     );
 
-    return this.#runStructuredTask<HypothesesOutput>({
+    return this.#runStructuredTask<AxisAssessmentsOutput>({
       schemaFileName: "hypotheses-output.schema.json",
       systemPrompt: prompt.system,
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
       afterValidation: (output) => {
-        for (const hypothesis of output.hypotheses) {
-          const supporting = new Set(hypothesis.supportingEvidenceIds);
+        const axes = output.assessments.map((assessment) => assessment.axis);
+        if (new Set(axes).size !== axes.length) {
+          throw new Error("同じ軸の分析を複数返せません。");
+        }
+
+        for (const assessment of output.assessments) {
+          const groups = [
+            ['LEFT', assessment.leftEvidenceIds],
+            ['RIGHT', assessment.rightEvidenceIds],
+            ['BOTH', assessment.bothEvidenceIds],
+            ['CONTEXT_DEPENDENT', assessment.contextEvidenceIds],
+          ] as const;
+          const groupedIds = groups.flatMap(([, ids]) => ids);
+          const supporting = new Set(groupedIds);
+
+          if (supporting.size !== groupedIds.length) {
+            throw new Error('同じ根拠を複数のpoleグループへ入れることはできません。');
+          }
+
+          for (const [pole, ids] of groups) {
+            for (const id of ids) {
+              const evidence = evidenceById.get(id);
+              if (evidence && (evidence.pole !== pole || evidence.supportType !== 'SUPPORT')) {
+                throw new Error(`根拠のpoleまたはsupportTypeが出力グループと一致しません: ${id}`);
+              }
+            }
+          }
 
           for (const evidenceId of [
-            ...hypothesis.supportingEvidenceIds,
-            ...hypothesis.counterEvidenceIds,
+            ...groupedIds,
+            ...assessment.counterEvidenceIds,
           ]) {
             const evidence = evidenceById.get(evidenceId);
 
@@ -265,22 +299,116 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
               throw new Error(`存在しない根拠IDです: ${evidenceId}`);
             }
 
-            if (evidence.category !== hypothesis.category) {
+            if (evidence.axis !== assessment.axis) {
               throw new Error(
-                `仮説と根拠のcategoryが一致しません: ${evidenceId}`,
+                `軸分析と根拠のaxisが一致しません: ${evidenceId}`,
               );
             }
           }
 
           if (
-            hypothesis.counterEvidenceIds.some((id) => supporting.has(id))
+            assessment.counterEvidenceIds.some((id) => supporting.has(id))
           ) {
             throw new Error("同じ根拠を支持と反証の両方に使えません。");
           }
-
-          if (hypothesis.counterEvidenceIds.length === 0) {
-            hypothesis.riskConditions = [];
+          for (const id of assessment.counterEvidenceIds) {
+            if (evidenceById.get(id)?.supportType !== 'COUNTER') {
+              throw new Error(`反証グループにCOUNTERではない根拠があります: ${id}`);
+            }
           }
+        }
+      },
+    });
+  }
+
+  async writeSelfAnalysisReport(
+    input: SelfAnalysisReportInput,
+  ): Promise<SelfAnalysisReportOutput> {
+    const prompt = buildSelfAnalysisReportPrompt(input);
+    const assessmentIds = new Set(input.axisAssessments.map((item) => item.id));
+
+    return this.#runStructuredTask<SelfAnalysisReportOutput>({
+      schemaFileName: "career-report-output.schema.json",
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      afterValidation: (output) => {
+        if (new Set(output.axisComments.map((item) => item.axisAssessmentId)).size !== output.axisComments.length) {
+          throw new Error('同じ4軸分析へのコメントが重複しています。');
+        }
+        const referencedIds = [
+          ...output.axisComments.map((item) => item.axisAssessmentId),
+          ...output.mustConditions.flatMap((item) => item.axisAssessmentIds),
+          ...output.preferConditions.flatMap((item) => item.axisAssessmentIds),
+          ...output.avoidConditions.flatMap((item) => item.axisAssessmentIds),
+          ...output.verifyConditions.flatMap((item) => item.axisAssessmentIds),
+        ];
+        for (const id of referencedIds) {
+          if (!assessmentIds.has(id)) {
+            throw new Error(`存在しない4軸分析IDです: ${id}`);
+          }
+        }
+        for (const comment of output.axisComments) {
+          const assessment = input.axisAssessments.find((item) => item.id === comment.axisAssessmentId);
+          if (!assessment || assessment.axis !== comment.axis) {
+            throw new Error(`軸コメントのaxisとaxisAssessmentIdが一致しません: ${comment.axisAssessmentId}`);
+          }
+        }
+      },
+    });
+  }
+
+  async generateOverallSelfAnalysis(
+    input: OverallSelfAnalysisInput,
+  ): Promise<OverallSelfAnalysisOutput> {
+    const prompt = buildOverallSelfAnalysisPrompt(input);
+    const reportIds = new Set(input.completedSessionReports.map((report) => report.id));
+    const evidenceIds = new Set(
+      input.completedSessionReports.flatMap((report) => report.axes.flatMap((axis) => axis.evidenceIds)),
+    );
+
+    return this.#runStructuredTask<OverallSelfAnalysisOutput>({
+      schemaFileName: "overall-self-analysis-output.schema.json",
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      afterValidation: (output) => {
+        if (new Set(output.axisTrends.map((item) => item.axis)).size !== output.axisTrends.length) {
+          throw new Error('総合4軸のaxisが重複しています。');
+        }
+        for (const id of [
+          ...output.axisTrends.flatMap((item) => item.sourceReportIds),
+          ...output.strengths.flatMap((item) => item.sourceReportIds),
+          ...output.weaknesses.flatMap((item) => item.sourceReportIds),
+        ]) {
+          if (!reportIds.has(id)) throw new Error(`存在しないレポートIDです: ${id}`);
+        }
+        for (const id of [
+          ...output.axisTrends.flatMap((item) => item.evidenceIds),
+          ...output.strengths.flatMap((item) => item.evidenceIds),
+          ...output.weaknesses.flatMap((item) => item.evidenceIds),
+        ]) {
+          if (!evidenceIds.has(id)) throw new Error(`存在しない根拠IDです: ${id}`);
+        }
+      },
+    });
+  }
+
+  async extractCompanyFacts(input: CompanyFactsInput): Promise<CompanyFactsOutput> {
+    const prompt = buildCompanyFactsPrompt(input);
+    return this.#runStructuredTask<CompanyFactsOutput>({
+      schemaFileName: "company-facts-output.schema.json",
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      afterValidation: (output) => {
+        for (const fact of output.facts) {
+          const exact = recoverExactQuote(input.source.text, fact.evidenceQuote);
+          if (!exact) throw new Error(`企業情報本文に存在しない引用です: ${fact.evidenceQuote}`);
+          fact.evidenceQuote = exact;
         }
       },
     });
@@ -342,9 +470,11 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       question: input.question,
       characterLimit: input.characterLimit,
       text: revision.revisedText,
-      allowedExperiences: input.allowedExperiences,
+      allConfirmedExperiences: input.allConfirmedExperiences,
       allowedCompanyFacts: input.allowedCompanyFacts,
-      confirmedHypothesesForVoice: input.confirmedHypothesesForVoice,
+      allSessionReports: input.allSessionReports,
+      ...(input.overallSelfAnalysisProfile ? { overallSelfAnalysisProfile: input.overallSelfAnalysisProfile } : {}),
+      preferredExperienceIds: input.preferredExperienceIds,
     });
 
     return { revision, verification };
@@ -362,7 +492,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       let sourceTexts: string[] | undefined;
 
       if (evidence.sourceType === "EXPERIENCE") {
-        const experience = input.allowedExperiences.find(
+        const experience = input.allConfirmedExperiences.find(
           (experience) => experience.id === evidence.sourceId,
         );
         sourceTexts = experience

@@ -1,90 +1,134 @@
+import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm-studio-ai-gateway';
 import { prisma } from '@/lib/prisma';
-import type { SendMessageRequest, ChatMessageResponse } from '@/types/session';
+import { aiError, internalError, jsonBody, objectArray, page, problem, readPagination, stringArray } from '@/server/api';
+import { formatMessage } from '@/server/formatters';
+import type { SelfAnalysisAxis } from '@/types/dashboard';
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ sessionId: string }> | { sessionId: string } }
-): Promise<Response> {
+type Context = { params: Promise<{ sessionId: string }> };
+
+export async function GET(request: Request, context: Context): Promise<Response> {
   try {
-    const params = await context.params;
-    const { sessionId } = params;
-
-    // 1. セッションの存在確認
-    const session = await prisma.analysisSession.findUnique({
-      where: { id: sessionId },
-    });
-
-    if (!session) {
-      return Response.json(
-        { code: 'NOT_FOUND', message: '指定されたセッションが存在しません。' },
-        { status: 404 }
-      );
-    }
-
-    const body: SendMessageRequest = (await request.json()) as SendMessageRequest;
-
-    if (!body.content || typeof body.content !== 'string' || body.content.trim() === '') {
-      return Response.json(
-        { code: 'VALIDATION_ERROR', message: 'content は必須項目です。' },
-        { status: 422 }
-      );
-    }
-
-    const role = body.role || 'USER';
-    const content = body.content;
-    const clientMessageId = body.clientMessageId || null;
-
-    // 2. 二重送信防止チェック (clientMessageId による確認)
-    if (clientMessageId) {
-      const existing = await prisma.message.findUnique({
-        where: { clientMessageId },
-      });
-      if (existing) {
-        return Response.json(formatMessage(existing), { status: 200 });
-      }
-    }
-
-    // 3. 二重送信防止チェック (直前のメッセージの role & content 重複確認)
-    const lastMessage = await prisma.message.findFirst({
+    const { sessionId } = await context.params;
+    const session = await prisma.analysisSession.findUnique({ where: { id: sessionId }, select: { id: true } });
+    if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
+    const { cursor, limit } = readPagination(request);
+    const records = await prisma.message.findMany({
       where: { sessionId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
-
-    if (lastMessage && lastMessage.role === role && lastMessage.content === content) {
-      return Response.json(formatMessage(lastMessage), { status: 200 });
-    }
-
-    // 4. メッセージの新規保存
-    const newMessage = await prisma.message.create({
-      data: {
-        sessionId,
-        role,
-        content,
-        questionTarget: body.questionTarget || null,
-        evidenceCandidates: body.evidenceCandidates || null,
-        clientMessageId,
-      },
-    });
-
-    return Response.json(formatMessage(newMessage), { status: 201 });
+    return Response.json(page(records.map(formatMessage), limit));
   } catch (error) {
-    console.error('Error saving chat message:', error);
-    return Response.json(
-      { code: 'INTERNAL_ERROR', message: 'メッセージ保存中にエラーが発生しました。' },
-      { status: 500 }
-    );
+    return internalError(error, '会話履歴の取得');
   }
 }
 
-function formatMessage(msg: any): ChatMessageResponse {
-  return {
-    id: msg.id,
-    sessionId: msg.sessionId,
-    role: msg.role,
-    content: msg.content,
-    questionTarget: msg.questionTarget || null,
-    evidenceCandidates: msg.evidenceCandidates || null,
-    clientMessageId: msg.clientMessageId || null,
-    createdAt: msg.createdAt instanceof Date ? msg.createdAt.toISOString() : new Date(msg.createdAt).toISOString(),
-  };
+export async function POST(request: Request, context: Context): Promise<Response> {
+  let ai: LmStudioPolarisAiGateway | undefined;
+  try {
+    const { sessionId } = await context.params;
+    const body = await jsonBody(request);
+    const content = typeof body?.content === 'string' ? body.content.trim() : '';
+    const clientMessageId = typeof body?.clientMessageId === 'string' ? body.clientMessageId : undefined;
+    if (!content || content.length > 10_000) {
+      return problem(422, 'VALIDATION_ERROR', 'content は1〜10000文字で指定してください。');
+    }
+    if (body?.clientMessageId !== undefined && !clientMessageId) {
+      return problem(422, 'VALIDATION_ERROR', 'clientMessageId が不正です。');
+    }
+    const session = await prisma.analysisSession.findUnique({ where: { id: sessionId } });
+    if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
+    if (session.status !== 'ACTIVE' && session.status !== 'READY_TO_FINALIZE') {
+      return problem(409, 'CONFLICT', '完了または破棄されたセッションには送信できません。');
+    }
+
+    if (clientMessageId) {
+      const existingUser = await prisma.message.findUnique({ where: { clientMessageId } });
+      if (existingUser) {
+        if (existingUser.sessionId !== sessionId || existingUser.role !== 'USER' || existingUser.content !== content) {
+          return problem(409, 'CONFLICT', 'clientMessageId は別の送信で使用されています。');
+        }
+        const assistant = await prisma.message.findFirst({
+          where: { sessionId, role: 'ASSISTANT', createdAt: { gte: existingUser.createdAt } },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        });
+        if (!assistant) return problem(409, 'CONFLICT', '前回のAI応答が未完了です。再試行してください。', { retryable: true });
+        const metadata = typeof assistant.turnMetadata === 'object' && assistant.turnMetadata !== null && !Array.isArray(assistant.turnMetadata)
+          ? assistant.turnMetadata as Record<string, unknown>
+          : {};
+        return Response.json({
+          userMessage: formatMessage(existingUser),
+          assistantMessage: formatMessage(assistant),
+          evidenceCandidates: objectArray(assistant.evidenceCandidates),
+          experienceReady: metadata.experienceReady === true,
+          missingAxes: stringArray(metadata.missingAxes),
+          completionIntent: metadata.completionIntent === 'SUGGESTED' ? 'SUGGESTED' : 'NONE',
+        });
+      }
+    }
+
+    const history = await prisma.message.findMany({ where: { sessionId }, orderBy: { createdAt: 'asc' } });
+    const [confirmedExperiences, evidencedAxes] = await Promise.all([
+      prisma.experience.findMany({ where: { sourceSessionId: sessionId, status: 'CONFIRMED' }, select: { type: true } }),
+      prisma.axisEvidenceItem.findMany({
+        where: { experience: { sourceSessionId: sessionId, status: 'CONFIRMED' }, supportType: 'SUPPORT' },
+        select: { axis: true },
+      }),
+    ]);
+    const userMessageId = crypto.randomUUID();
+    const targetAxes = stringArray(session.targetAxes) as SelfAnalysisAxis[];
+    const coveredAxes = new Set(evidencedAxes.map((item) => item.axis));
+    const missingAxes = targetAxes.filter((axis) => !coveredAxes.has(axis));
+    ai = new LmStudioPolarisAiGateway();
+    const turn = await ai.createChatTurn({
+      session: {
+        id: sessionId,
+        targetAxes,
+        coveredExperienceTypes: [...new Set(confirmedExperiences.map((item) => item.type))],
+        missingAxes,
+      },
+      messages: [
+        ...history.map((message) => ({ id: message.id, role: message.role, content: message.content })),
+        { id: userMessageId, role: 'USER' as const, content },
+      ],
+    });
+
+    const saved = await prisma.$transaction(async (tx) => {
+      const userMessage = await tx.message.create({
+        data: { id: userMessageId, sessionId, role: 'USER', content, clientMessageId: clientMessageId ?? null },
+      });
+      const assistantMessage = await tx.message.create({
+        data: {
+          sessionId,
+          role: 'ASSISTANT',
+          content: turn.reply,
+          questionTarget: turn.nextQuestionTarget,
+          evidenceCandidates: turn.evidenceCandidates,
+          turnMetadata: {
+            experienceReady: turn.experienceReady,
+            missingAxes,
+            completionIntent: turn.completionIntent,
+          },
+        },
+      });
+      if (session.status === 'READY_TO_FINALIZE') {
+        await tx.analysisSession.update({ where: { id: sessionId }, data: { status: 'ACTIVE' } });
+      }
+      return { userMessage, assistantMessage };
+    });
+    return Response.json({
+      userMessage: formatMessage(saved.userMessage),
+      assistantMessage: formatMessage(saved.assistantMessage),
+      evidenceCandidates: turn.evidenceCandidates,
+      experienceReady: turn.experienceReady,
+      missingAxes,
+      completionIntent: turn.completionIntent,
+    });
+  } catch (error) {
+    if (error instanceof PolarisAiError) return aiError(error);
+    return internalError(error, 'チャット送信');
+  } finally {
+    if (ai) await ai[Symbol.asyncDispose]();
+  }
 }

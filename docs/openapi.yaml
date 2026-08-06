@@ -417,7 +417,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Experience'
+                $ref: '#/components/schemas/UpdateExperienceResponse'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -499,60 +499,34 @@ paths:
     get:
       tags: [Self Analysis]
       operationId: listSelfAnalysisReports
-      summary: 過去の分析スナップショット一覧を取得する
-      description: 作成日時の降順で全件返す。スナップショットは上書きされず追加される設計のため全履歴が保持される。
+      x-priority: P1
+      summary: 最新を含む自己分析レポート履歴を取得する
+      description: ホームでは使用しない。将来の履歴画面またはデバッグ用。
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
       responses:
         '200':
-          description: スナップショット一覧
+          description: レポート履歴
           content:
             application/json:
               schema:
-                type: object
-                required: [items]
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/SelfAnalysisAxisReport'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    post:
-      tags: [Self Analysis]
-      operationId: createSelfAnalysisReport
-      summary: AIが生成した4軸自己分析結果をスナップショットとして保存する
-      description: |
-        4軸（ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT）すべてを含む
-        JSONを受け取り、DBに追記する。既存スナップショットは変更しない。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateSelfAnalysisAxisReportRequest'
-      responses:
-        '201':
-          description: 作成したスナップショット
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SelfAnalysisAxisReport'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '500':
-          $ref: '#/components/responses/InternalError'
+                $ref: '#/components/schemas/SelfAnalysisReportPage'
 
   /api/v1/self-analysis-reports/latest:
     get:
       tags: [Self Analysis]
       operationId: getLatestSelfAnalysisReport
-      summary: 最新の自己分析スナップショットを取得する
+      x-priority: P1
+      summary: 最新の自己分析レポートを取得する
+      description: ホームでは使用せず、将来の履歴機能向けに保持する。
       responses:
         '200':
-          description: 最新スナップショット
+          description: 最新レポート
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SelfAnalysisAxisReport'
+                $ref: '#/components/schemas/SelfAnalysisReport'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -562,18 +536,16 @@ paths:
     get:
       tags: [Self Analysis]
       operationId: getSelfAnalysisReport
-      summary: 指定した分析スナップショットの詳細を取得する
+      summary: 指定した自己分析レポートを取得する
       responses:
         '200':
-          description: スナップショット詳細
+          description: 自己分析レポート
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SelfAnalysisAxisReport'
+                $ref: '#/components/schemas/SelfAnalysisReport'
         '404':
           $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
 
   /api/v1/companies:
     get:
@@ -1275,11 +1247,11 @@ components:
 
     AnalysisSessionStatus:
       type: string
-      enum: [ACTIVE, READY_TO_FINALIZE, ANALYZING, COMPLETED, FAILED, ABANDONED]
+      enum: [ACTIVE, READY_TO_FINALIZE, COMPLETED, ABANDONED]
 
     AnalysisSession:
       type: object
-      required: [id, title, status, targetAxes, progress, createdAt, updatedAt]
+      required: [id, title, status, targetAxes, progress, createdAt, updatedAt, completedAt]
       properties:
         id:
           type: string
@@ -1303,8 +1275,11 @@ components:
           type: string
           format: date-time
         completedAt:
-          type: string
-          format: date-time
+          description: 未完了のセッションでは`null`を返す。
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
 
     AnalysisProgress:
       type: object
@@ -1380,7 +1355,7 @@ components:
 
     ChatMessage:
       type: object
-      required: [id, sessionId, role, content, createdAt]
+      required: [id, sessionId, role, content, questionTarget, createdAt]
       properties:
         id:
           type: string
@@ -1395,7 +1370,10 @@ components:
           minLength: 1
           maxLength: 10000
         questionTarget:
-          $ref: '#/components/schemas/QuestionTarget'
+          description: USERメッセージなど質問対象がない場合は`null`。
+          anyOf:
+            - $ref: '#/components/schemas/QuestionTarget'
+            - type: 'null'
         createdAt:
           type: string
           format: date-time
@@ -1484,15 +1462,25 @@ components:
       type: object
       required:
         - id
+        - sourceSessionId
+        - sourceMessageId
         - type
         - title
         - situation
+        - goal
         - role
+        - options
+        - decision
+        - decisionReason
         - actions
+        - result
+        - positiveEmotion
+        - negativeEmotion
         - energyChange
         - environment
         - evidenceQuotes
         - status
+        - confirmedAt
         - createdAt
         - updatedAt
       properties:
@@ -1500,8 +1488,17 @@ components:
           type: string
           format: uuid
         sourceSessionId:
-          type: string
-          format: uuid
+          description: フォームから作成した経験など、元セッションがない場合は`null`。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        sourceMessageId:
+          description: 経験を代表する元USER発言。複数発言の厳密な根拠は`evidenceQuotes`で保持し、代表発言がない場合は`null`。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
         type:
           $ref: '#/components/schemas/ExperienceType'
         title:
@@ -1513,8 +1510,10 @@ components:
           minLength: 1
           maxLength: 3000
         goal:
-          type: string
-          maxLength: 2000
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: 'null'
         role:
           type: string
           minLength: 1
@@ -1525,11 +1524,15 @@ components:
             type: string
             maxLength: 1000
         decision:
-          type: string
-          maxLength: 2000
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: 'null'
         decisionReason:
-          type: string
-          maxLength: 2000
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: 'null'
         actions:
           type: array
           minItems: 1
@@ -1537,14 +1540,20 @@ components:
             type: string
             maxLength: 2000
         result:
-          type: string
-          maxLength: 3000
+          anyOf:
+            - type: string
+              maxLength: 3000
+            - type: 'null'
         positiveEmotion:
-          type: string
-          maxLength: 2000
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: 'null'
         negativeEmotion:
-          type: string
-          maxLength: 2000
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: 'null'
         energyChange:
           $ref: '#/components/schemas/EnergyChange'
         environment:
@@ -1559,8 +1568,11 @@ components:
         status:
           $ref: '#/components/schemas/ExperienceStatus'
         confirmedAt:
-          type: string
-          format: date-time
+          description: DRAFTでは`null`。
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
         createdAt:
           type: string
           format: date-time
@@ -1572,6 +1584,13 @@ components:
       type: object
       required: [type, title, situation, role, actions, energyChange, environment]
       properties:
+        sourceSessionId:
+          type: string
+          format: uuid
+        sourceMessageId:
+          type: string
+          format: uuid
+          description: 任意の代表USER発言。指定時は`sourceSessionId`と同じセッションに属する必要がある。
         type:
           $ref: '#/components/schemas/ExperienceType'
         title:
@@ -1614,8 +1633,6 @@ components:
           type: array
           items:
             type: string
-        status:
-          $ref: '#/components/schemas/ExperienceStatus'
 
     UpdateExperienceRequest:
       type: object
@@ -1632,8 +1649,10 @@ components:
           minLength: 1
           maxLength: 3000
         goal:
-          type: string
-          maxLength: 2000
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: 'null'
         role:
           type: string
           minLength: 1
@@ -1643,20 +1662,30 @@ components:
           items:
             type: string
         decision:
-          type: string
+          anyOf:
+            - type: string
+            - type: 'null'
         decisionReason:
-          type: string
+          anyOf:
+            - type: string
+            - type: 'null'
         actions:
           type: array
           minItems: 1
           items:
             type: string
         result:
-          type: string
+          anyOf:
+            - type: string
+            - type: 'null'
         positiveEmotion:
-          type: string
+          anyOf:
+            - type: string
+            - type: 'null'
         negativeEmotion:
-          type: string
+          anyOf:
+            - type: string
+            - type: 'null'
         energyChange:
           $ref: '#/components/schemas/EnergyChange'
         environment:
@@ -1676,6 +1705,31 @@ components:
             $ref: '#/components/schemas/Experience'
         nextCursor:
           type: string
+
+    StaledAssessmentSummary:
+      type: object
+      required: [id, axis, sourceSessionId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        axis:
+          $ref: '#/components/schemas/SelfAnalysisAxis'
+        sourceSessionId:
+          type: string
+          format: uuid
+
+    UpdateExperienceResponse:
+      type: object
+      required: [experience, staledAssessments]
+      properties:
+        experience:
+          $ref: '#/components/schemas/Experience'
+        staledAssessments:
+          type: array
+          description: この更新により`isStale=true`へ変わった4軸分析。既に古かった項目は含めない。
+          items:
+            $ref: '#/components/schemas/StaledAssessmentSummary'
 
     MessageQuote:
       type: object
@@ -1736,7 +1790,7 @@ components:
 
     EvidenceReference:
       type: object
-      required: [id, experienceId, axis, pole, supportType, quote, interpretation]
+      required: [id, experienceId, messageId, axis, pole, supportType, quote, interpretation]
       properties:
         id:
           type: string
@@ -1745,8 +1799,11 @@ components:
           type: string
           format: uuid
         messageId:
-          type: string
-          format: uuid
+          description: 手入力など元メッセージがない根拠では`null`。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
         axis:
           $ref: '#/components/schemas/SelfAnalysisAxis'
         pole:
@@ -1787,6 +1844,7 @@ components:
         - rightConditions
         - contextNotes
         - userAssessment
+        - userNote
         - isStale
         - createdAt
         - updatedAt
@@ -1844,8 +1902,10 @@ components:
         userAssessment:
           $ref: '#/components/schemas/UserAssessment'
         userNote:
-          type: string
-          maxLength: 3000
+          anyOf:
+            - type: string
+              maxLength: 3000
+            - type: 'null'
         isStale:
           type: boolean
         createdAt:
@@ -2183,23 +2243,31 @@ components:
           minLength: 1
           maxLength: 200
         targetRole:
-          type: string
-          maxLength: 200
+          anyOf:
+            - type: string
+              maxLength: 200
+            - type: 'null'
         officialUrl:
-          type: string
-          format: uri
+          anyOf:
+            - type: string
+              format: uri
+            - type: 'null'
         careerUrl:
-          type: string
-          format: uri
+          anyOf:
+            - type: string
+              format: uri
+            - type: 'null'
         recommendationEligible:
           type: boolean
         note:
-          type: string
-          maxLength: 5000
+          anyOf:
+            - type: string
+              maxLength: 5000
+            - type: 'null'
 
     CompanySummary:
       type: object
-      required: [id, name, origin, recommendationEligible, sourceCount, factCount, createdAt, updatedAt]
+      required: [id, name, targetRole, origin, officialUrl, careerUrl, recommendationEligible, sourceCount, factCount, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -2207,15 +2275,21 @@ components:
         name:
           type: string
         targetRole:
-          type: string
+          anyOf:
+            - type: string
+            - type: 'null'
         origin:
           $ref: '#/components/schemas/CompanyOrigin'
         officialUrl:
-          type: string
-          format: uri
+          anyOf:
+            - type: string
+              format: uri
+            - type: 'null'
         careerUrl:
-          type: string
-          format: uri
+          anyOf:
+            - type: string
+              format: uri
+            - type: 'null'
         recommendationEligible:
           type: boolean
         sourceCount:
@@ -2239,10 +2313,12 @@ components:
       allOf:
         - $ref: '#/components/schemas/CompanySummary'
         - type: object
-          required: [sources, facts, unknownItems]
+          required: [note, sources, facts, unknownItems]
           properties:
             note:
-              type: string
+              anyOf:
+                - type: string
+                - type: 'null'
             sources:
               type: array
               items:
@@ -2266,7 +2342,7 @@ components:
 
     CompanySource:
       type: object
-      required: [id, type, trustLevel, title, retrievedAt]
+      required: [id, type, trustLevel, title, url, retrievedAt]
       properties:
         id:
           type: string
@@ -2278,8 +2354,10 @@ components:
         title:
           type: string
         url:
-          type: string
-          format: uri
+          anyOf:
+            - type: string
+              format: uri
+            - type: 'null'
         retrievedAt:
           type: string
           format: date-time
@@ -2302,7 +2380,7 @@ components:
 
     CompanyFact:
       type: object
-      required: [id, sourceId, category, fact, evidenceQuote]
+      required: [id, sourceId, category, fact, evidenceQuote, sourceUrl]
       properties:
         id:
           type: string
@@ -2319,8 +2397,10 @@ components:
           type: string
           minLength: 1
         sourceUrl:
-          type: string
-          format: uri
+          anyOf:
+            - type: string
+              format: uri
+            - type: 'null'
 
     ImportCompanyTextRequest:
       type: object
@@ -2520,6 +2600,8 @@ components:
         - progress
         - warnings
         - recommendations
+        - startedAt
+        - completedAt
         - createdAt
         - updatedAt
       properties:
@@ -2550,11 +2632,15 @@ components:
           items:
             $ref: '#/components/schemas/CompanyRecommendation'
         startedAt:
-          type: string
-          format: date-time
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
         completedAt:
-          type: string
-          format: date-time
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
         createdAt:
           type: string
           format: date-time
@@ -2568,16 +2654,22 @@ components:
 
     EsDocumentSummary:
       type: object
-      required: [id, question, characterLimit, characterCount, status, createdAt, updatedAt]
+      required: [id, companyId, targetRole, question, characterLimit, characterCount, status, createdAt, updatedAt]
       properties:
         id:
           type: string
           format: uuid
         companyId:
-          type: string
-          format: uuid
+          description: 企業未指定の場合は`null`。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
         targetRole:
-          type: string
+          description: 応募職種未指定の場合は`null`。
+          anyOf:
+            - type: string
+            - type: 'null'
         question:
           type: string
         characterLimit:
@@ -2631,12 +2723,16 @@ components:
       required: [question, characterLimit, originalText]
       properties:
         companyId:
-          type: string
-          format: uuid
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
           description: 任意。未指定時は本人経験だけを検査し、企業主張は確認済みにしない。
         targetRole:
-          type: string
-          maxLength: 200
+          anyOf:
+            - type: string
+              maxLength: 200
+            - type: 'null'
         question:
           type: string
           minLength: 1
@@ -2673,8 +2769,10 @@ components:
               format: uuid
             - type: 'null'
         targetRole:
-          type: string
-          maxLength: 200
+          anyOf:
+            - type: string
+              maxLength: 200
+            - type: 'null'
         question:
           type: string
           minLength: 1
@@ -2734,7 +2832,7 @@ components:
 
     EsClaim:
       type: object
-      required: [id, sentence, text, type, status, evidence]
+      required: [id, sentence, text, type, status, evidence, explanation, targetRange]
       properties:
         id:
           type: string
@@ -2752,9 +2850,14 @@ components:
           items:
             $ref: '#/components/schemas/ClaimEvidence'
         explanation:
-          type: string
+          anyOf:
+            - type: string
+            - type: 'null'
         targetRange:
-          $ref: '#/components/schemas/TextRange'
+          description: 原文中の位置を一意に特定できない場合は`null`。
+          anyOf:
+            - $ref: '#/components/schemas/TextRange'
+            - type: 'null'
 
     EsIssueCode:
       type: string
@@ -2771,7 +2874,7 @@ components:
 
     EsIssue:
       type: object
-      required: [code, severity, message]
+      required: [code, severity, message, sentence, targetRange, relatedClaimIds]
       properties:
         code:
           $ref: '#/components/schemas/EsIssueCode'
@@ -2781,9 +2884,13 @@ components:
         message:
           type: string
         sentence:
-          type: string
+          anyOf:
+            - type: string
+            - type: 'null'
         targetRange:
-          $ref: '#/components/schemas/TextRange'
+          anyOf:
+            - $ref: '#/components/schemas/TextRange'
+            - type: 'null'
         relatedClaimIds:
           type: array
           items:
@@ -2797,7 +2904,7 @@ components:
 
     EsAiComment:
       type: object
-      required: [category, message, severity, evidence]
+      required: [category, message, severity, targetRange, evidence]
       properties:
         category:
           type: string
@@ -2809,7 +2916,9 @@ components:
           type: string
           enum: [ERROR, WARNING, INFO]
         targetRange:
-          $ref: '#/components/schemas/TextRange'
+          anyOf:
+            - $ref: '#/components/schemas/TextRange'
+            - type: 'null'
         evidence:
           type: array
           items:
@@ -2820,6 +2929,7 @@ components:
       required:
         - id
         - esDocumentId
+        - revisionId
         - sourceKind
         - freshness
         - characterCount
@@ -2838,8 +2948,11 @@ components:
           type: string
           format: uuid
         revisionId:
-          type: string
-          format: uuid
+          description: 原文の検査では`null`。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
         sourceKind:
           type: string
           enum: [ORIGINAL, REVISION]
@@ -2915,6 +3028,7 @@ components:
       required:
         - id
         - esDocumentId
+        - basedOnAnalysisId
         - freshness
         - revisedText
         - usedExperienceIds
@@ -2922,6 +3036,7 @@ components:
         - characterCount
         - changes
         - unsupportedClaims
+        - verificationAnalysisId
         - createdAt
       properties:
         id:
@@ -2963,8 +3078,11 @@ components:
           items:
             $ref: '#/components/schemas/EsClaim'
         verificationAnalysisId:
-          type: string
-          format: uuid
+          description: 再検査前の推敲案では`null`。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
         createdAt:
           type: string
           format: date-time
@@ -3009,157 +3127,3 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ErrorDetail'
-
-    SelfAnalysisReportAxisType:
-      type: string
-      enum: [ENERGY_SOURCE, ACTION_STYLE, SATISFACTION_SOURCE, PREFERRED_ENVIRONMENT]
-      description: |
-        4軸の識別子。
-        - ENERGY_SOURCE: Focus（集中）↔ Connect（つながり）
-        - ACTION_STYLE: Plan（計画）↔ Experiment（実験）
-        - SATISFACTION_SOURCE: Mastery（熟達）↔ Impact（インパクト）
-        - PREFERRED_ENVIRONMENT: Stable（安定）↔ Dynamic（変化）
-
-    SelfAnalysisReportUserEvaluation:
-      type: string
-      enum: [UNREVIEWED, MATCHES, PARTIALLY_MATCHES, DOES_NOT_MATCH, NEEDS_EXPLORATION]
-
-    SelfAnalysisAxisReportDetail:
-      type: object
-      required:
-        - id
-        - axisType
-        - currentTendency
-        - userComment
-        - leftEvidence
-        - rightEvidence
-        - evidenceExperienceIds
-        - evidenceUtteranceIds
-        - userEvaluation
-        - createdAt
-      properties:
-        id:
-          type: string
-          format: uuid
-        axisType:
-          $ref: '#/components/schemas/SelfAnalysisReportAxisType'
-        currentTendency:
-          type: string
-          minLength: 1
-          description: 現在の傾向（AIが判定した軸上の位置づけ）
-        userComment:
-          type: string
-          minLength: 1
-          description: ユーザー向けコメント
-        leftEvidence:
-          type: string
-          minLength: 1
-          description: 左極側の根拠
-        rightEvidence:
-          type: string
-          minLength: 1
-          description: 右極側の根拠
-        contextDifference:
-          type: string
-          description: 状況による違い
-        counterExample:
-          type: string
-          description: 反対事例
-        evidenceExperienceIds:
-          type: array
-          uniqueItems: true
-          description: 根拠となった経験ID
-          items:
-            type: string
-            format: uuid
-        evidenceUtteranceIds:
-          type: array
-          uniqueItems: true
-          description: 根拠となった発言ID
-          items:
-            type: string
-            format: uuid
-        userEvaluation:
-          $ref: '#/components/schemas/SelfAnalysisReportUserEvaluation'
-        createdAt:
-          type: string
-          format: date-time
-
-    SelfAnalysisAxisReport:
-      type: object
-      required:
-        - id
-        - isOutdated
-        - createdAt
-        - axisDetails
-      properties:
-        id:
-          type: string
-          format: uuid
-        isOutdated:
-          type: boolean
-          description: 新しいスナップショットが存在するなど、このスナップショットが古くなっているか
-        createdAt:
-          type: string
-          format: date-time
-        axisDetails:
-          type: array
-          minItems: 4
-          maxItems: 4
-          description: 4軸の評価詳細
-          items:
-            $ref: '#/components/schemas/SelfAnalysisAxisReportDetail'
-
-    CreateSelfAnalysisAxisReportDetailRequest:
-      type: object
-      required:
-        - axisType
-        - currentTendency
-        - userComment
-        - leftEvidence
-        - rightEvidence
-      properties:
-        axisType:
-          $ref: '#/components/schemas/SelfAnalysisReportAxisType'
-        currentTendency:
-          type: string
-          minLength: 1
-        userComment:
-          type: string
-          minLength: 1
-        leftEvidence:
-          type: string
-          minLength: 1
-        rightEvidence:
-          type: string
-          minLength: 1
-        contextDifference:
-          type: string
-        counterExample:
-          type: string
-        evidenceExperienceIds:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-            format: uuid
-        evidenceUtteranceIds:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-            format: uuid
-        userEvaluation:
-          $ref: '#/components/schemas/SelfAnalysisReportUserEvaluation'
-
-    CreateSelfAnalysisAxisReportRequest:
-      type: object
-      required: [axisDetails]
-      properties:
-        axisDetails:
-          type: array
-          minItems: 4
-          maxItems: 4
-          description: 4軸すべてを1件ずつ含める必要がある
-          items:
-            $ref: '#/components/schemas/CreateSelfAnalysisAxisReportDetailRequest'

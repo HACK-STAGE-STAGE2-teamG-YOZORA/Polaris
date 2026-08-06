@@ -1,11 +1,21 @@
 import type {
   ChatTurnInput,
+  CompanyFactsInput,
   EsAnalysisInput,
   EsRevisionInput,
   ExperienceDraftInput,
   ExperienceDraftOutput,
-  HypothesesInput,
+  AxisAssessmentsInput,
+  OverallSelfAnalysisInput,
+  SelfAnalysisReportInput,
 } from "./types";
+
+export function buildCompanyFactsPrompt(input: CompanyFactsInput): { system: string; user: string } {
+  return {
+    system: `あなたは企業情報の事実抽出器です。入力された本文だけを根拠に、企業事実を最小単位で抽出してください。evidenceQuote は本文から一字一句変えずに引用し、不明な点は unknownItems に入れてください。一般知識で補完せず、JSON Schema 以外の文章を返さないでください。`,
+    user: `<USER_DATA>\n${JSON.stringify(input, null, 2)}\n</USER_DATA>`,
+  };
+}
 
 const sharedSafetyRules = `
 共通ルール:
@@ -34,12 +44,12 @@ export function buildChatTurnPrompt(input: ChatTurnInput): {
 - 同じ論点を繰り返さず、その経験でまだ分からない重要情報を優先する
 - 十分な情報が集まるまでは別の経験へ移らない
 
-深掘りする観点:
-- EXPERIENCE_DETAIL: 状況、目標、本人の役割、選択肢、判断、行動、結果
-- CAN: 本人が実際に取った再現可能な行動
-- WANT: 選択理由と、大切にした基準
-- ENERGY: その活動の前後で元気・充実感がどう変化したか
-- CONTEXT: 人数、裁量、役割、変化、フィードバックなどの環境条件
+  深掘りする観点:
+  - EXPERIENCE_DETAIL: 状況、目標、本人の役割、選択肢、判断、行動、結果
+  - ENERGY_SOURCE: Focus（一人で集中）とConnect（他者との共創）のどちらでエネルギーを得たか
+  - ACTION_STYLE: Plan（先に設計）とExperiment（小さく試す）をどう使ったか
+  - SATISFACTION_SOURCE: Mastery（習熟）とImpact（他者・社会への貢献）のどちらに満足したか
+  - PREFERRED_ENVIRONMENT: Stable（予測可能）とDynamic（変化が多い）のどちらで動きやすかったか
 - CONTRADICTION: 発言間に食い違いがある場合の確認
 - CONFIRMATION: 解釈が本人の認識と合うかの確認
 
@@ -47,7 +57,7 @@ experienceReadyは、少なくとも状況、本人の役割、具体的行動�
 evidenceCandidatesには、このターンまでのUSER発言から直接支えられる候補だけを含める。
 statementは断定的な性格ラベルではなく、経験内で確認できる行動・価値観・エネルギー変化・環境条件として書く。
 supportTypeは、quoteがstatementを直接支える場合はSUPPORT、反対事例ならCOUNTER、どちらとも言えなければUNKNOWNにする。根拠として抽出しただけの発言をCOUNTERにしない。
-WANTは、本人が価値基準、選択理由、好き嫌い、優先順位を明示した場合だけ候補にする。「期限内に完成した」などの結果だけから、期限を重視する価値観を推測しない。
+  poleはLEFT、RIGHT、BOTH、CONTEXT_DEPENDENT、UNKNOWNから選び、片側の発言がないだけで反対側と推測しない。
 ${sharedSafetyRules}`;
 
   const user = `
@@ -150,36 +160,34 @@ ${JSON.stringify(input, null, 2)}
   return { system, user };
 }
 
-export function buildHypothesesPrompt(input: HypothesesInput): {
+export function buildAxisAssessmentsPrompt(input: AxisAssessmentsInput): {
   system: string;
   user: string;
 } {
   const system = `
-あなたはPolarisのキャリア仮説分析器です。
-ユーザーを性格タイプへ分類せず、CONFIRMED経験と渡されたevidenceItemsだけから、現在の仮説を作ってください。
+  あなたはPolarisの独自4軸分析器です。
+  ユーザーを性格タイプへ分類せず、CONFIRMED経験と渡されたevidenceItemsだけから、現在の4軸傾向候補を作ってください。
 
-4領域:
-- CAN: 実際に取った、再現可能性のある行動。形容詞ではなく動詞を含む文にする
-- WANT: 判断・選択で大切にした価値基準。明示された理由を必要とする
-- ENERGY: 元気・充実感が増える活動と消耗する活動を分ける
-- CONTEXT: 人数、裁量、役割、変化、フィードバックなど具体的な環境条件
+  4軸:
+  - ENERGY_SOURCE: Focus（集中）↔ Connect（共創）
+  - ACTION_STYLE: Plan（設計）↔ Experiment（実験）
+  - SATISFACTION_SOURCE: Mastery（習熟）↔ Impact（貢献）
+  - PREFERRED_ENVIRONMENT: Stable（安定）↔ Dynamic（変化）
 
 分析ルール:
-- supportingEvidenceIdsとcounterEvidenceIdsには入力されたevidenceItemsのIDだけを使う
-- 同じexperienceId内の複数根拠を、独立経験が複数あるように扱わない
-- 単発経験から普遍的な性格を断定しない
-- 反対根拠や例外を積極的に探す
-- enablingConditionsは支持根拠に明示された環境条件だけを書く
-- riskConditionsはcounterEvidenceIdsに対応する反対根拠に明示された条件だけを書く。反対根拠がなければ空配列にする
-- 肯定仮説の論理的な反対を、リスク条件として創作しない
-- 能力点数、適性点数、性格タイプを生成しない
-- 根拠不足の領域はmissingAreasへ入れる
-- 根拠不足の領域について、空文字や根拠IDなしの仮説をhypothesesへ追加しない
-- 食い違いは無理に統合せずcontradictionsToExploreへ入れる
+  - 各pole別のEvidenceIdsとcounterEvidenceIdsには入力されたevidenceItemsのIDだけを使う
+  - evidenceItemsのaxisとassessmentのaxisを一致させる
+  - 同じexperienceId内の複数根拠を、独立経験が複数あるように扱わない
+  - 単発経験から普遍的な性格を断定しない
+  - LEFTとRIGHTの両方がある場合はBALANCED_OR_BOTH、状況差がある場合はCONTEXT_DEPENDENTを検討する
+  - 確認済み根拠がない軸はINSUFFICIENT_EVIDENCEにする
+  - 能力点数、適性点数、性格タイプを生成しない
+  - 根拠不足の軸はmissingAxesへ入れる
+  - 食い違いは無理に統合せずcontradictionsToExploreへ入れる
 ${sharedSafetyRules}`;
 
   const user = `
-確認済み経験と根拠から、4領域のキャリア仮説を作成してください。
+  確認済み経験と根拠から、独自4軸の分析候補を作成してください。
 
 <USER_DATA>
 ${JSON.stringify(input, null, 2)}
@@ -187,6 +195,34 @@ ${JSON.stringify(input, null, 2)}
 `;
 
   return { system, user };
+}
+
+export function buildSelfAnalysisReportPrompt(
+  input: SelfAnalysisReportInput,
+): { system: string; user: string } {
+  return {
+    system: `
+あなたはPolarisの自己分析レポート編集者です。
+本人評価済みの4軸分析だけを使い、全体要約、軸ごとのコメント、Must／Prefer／Avoid／Verify条件、次に試す小さな実験を日本語で整理してください。
+DOES_NOT_MATCHを肯定的な人物像へ変換せず、NEEDS_EXPLORATIONは確認課題として扱ってください。
+入力にない事実や能力を追加せず、すべての条件は入力されたaxisAssessmentIdへ参照を付けてください。
+${sharedSafetyRules}`,
+    user: `<USER_DATA>\n${JSON.stringify(input, null, 2)}\n</USER_DATA>`,
+  };
+}
+
+export function buildOverallSelfAnalysisPrompt(
+  input: OverallSelfAnalysisInput,
+): { system: string; user: string } {
+  return {
+    system: `
+あなたはPolarisの総合自己分析編集者です。
+全完了セッションのレポートを横断し、軸位置を数値平均せず、根拠と本人評価から現在の4軸傾向、強み、弱み・注意点を整理してください。
+弱みは人格否定ではなく、負荷がかかりやすい条件や今後確認したい点として表現してください。
+すべての出力参照IDは入力に存在するものだけを使用してください。
+${sharedSafetyRules}`,
+    user: `<USER_DATA>\n${JSON.stringify(input, null, 2)}\n</USER_DATA>`,
+  };
 }
 
 export function buildEsAnalysisPrompt(input: EsAnalysisInput): {
@@ -204,7 +240,7 @@ export function buildEsAnalysisPrompt(input: EsAnalysisInput): {
 
 ルール:
 - evidenceには入力されたEXPERIENCEまたはCOMPANY_FACTのIDと原文引用だけを使う
-- allowedExperiencesのconfirmedFactsとsourceQuotesは、どちらも確認済みの許可根拠として扱う
+- allConfirmedExperiencesのconfirmedFactsとsourceQuotesは、どちらも確認済みの許可根拠として扱う
 - EXPERIENCEのquoteはconfirmedFactsまたはsourceQuotesから、COMPANY_FACTのquoteはevidenceQuoteから完全一致で抜き出す
 - 未検証企業情報だけでVERIFIEDにしない
 - 数字、期間、役割、結果は特に厳格に分ける

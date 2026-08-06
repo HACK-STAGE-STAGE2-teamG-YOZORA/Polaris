@@ -1,94 +1,53 @@
 import { prisma } from '@/lib/prisma';
-import type { CreateAnalysisSessionRequest } from '@/types/session';
+import { internalError, jsonBody, page, problem, readPagination, SELF_ANALYSIS_AXES } from '@/server/api';
+import { defaultAxes, formatSession } from '@/server/formatters';
 import type { SelfAnalysisAxis } from '@/types/dashboard';
+
+const ACTIVE_STATUSES = ['ACTIVE', 'READY_TO_FINALIZE'] as const;
+const SESSION_STATUSES = ['ACTIVE', 'READY_TO_FINALIZE', 'COMPLETED', 'ABANDONED'] as const;
+
+export async function GET(request: Request): Promise<Response> {
+  try {
+    const { cursor, limit } = readPagination(request);
+    const status = new URL(request.url).searchParams.get('status');
+    if (status && !SESSION_STATUSES.includes(status as never)) {
+      return problem(422, 'VALIDATION_ERROR', 'status が不正です。');
+    }
+    const records = await prisma.analysisSession.findMany({
+      where: status ? { status: status as (typeof SESSION_STATUSES)[number] } : undefined,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    return Response.json(page(await Promise.all(records.map(formatSession)), limit));
+  } catch (error) {
+    return internalError(error, '自己分析セッション一覧の取得');
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    let body: CreateAnalysisSessionRequest = {};
-    try {
-      body = (await request.json()) as CreateAnalysisSessionRequest;
-    } catch {
-      // 空のボディまたはJSONなしの場合はデフォルト値を使用
+    const body = await jsonBody(request);
+    if (!body || (body.startMode !== 'START_NEW' && body.startMode !== 'RESTART_ACTIVE')) {
+      return problem(422, 'VALIDATION_ERROR', 'startMode は START_NEW または RESTART_ACTIVE で指定してください。');
     }
-
-    const startMode = body.startMode || 'START_NEW';
-    const title = body.title || '自己分析';
-    const targetAxes: SelfAnalysisAxis[] = body.targetAxes || [
-      'ENERGY_SOURCE',
-      'ACTION_STYLE',
-      'SATISFACTION_SOURCE',
-      'PREFERRED_ENVIRONMENT',
-    ];
-
-    // 進行中のセッションを検索
-    const activeSession = await prisma.analysisSession.findFirst({
-      where: {
-        status: {
-          in: ['ACTIVE', 'READY_TO_FINALIZE'],
-        },
-      },
-    });
-
-    if (activeSession) {
-      if (startMode === 'START_NEW') {
-        return Response.json(
-          {
-            code: 'CONFLICT',
-            message: '進行中の自己分析セッションが存在します。新しいセッションを開始するには RESTART_ACTIVE を指定してください。',
-            retryable: false,
-          },
-          { status: 409 }
-        );
-      } else if (startMode === 'RESTART_ACTIVE') {
-        // 既存の進行中セッションを ABANDONED に更新
-        await prisma.analysisSession.updateMany({
-          where: {
-            status: {
-              in: ['ACTIVE', 'READY_TO_FINALIZE'],
-            },
-          },
-          data: {
-            status: 'ABANDONED',
-          },
-        });
+    const title = typeof body.title === 'string' ? body.title.trim() : '自己分析';
+    if (!title || title.length > 100) return problem(422, 'VALIDATION_ERROR', 'title は1〜100文字で指定してください。');
+    const targetAxes = (body.targetAxes ?? defaultAxes()) as SelfAnalysisAxis[];
+    if (!Array.isArray(targetAxes) || targetAxes.length === 0 || new Set(targetAxes).size !== targetAxes.length || targetAxes.some((axis) => !SELF_ANALYSIS_AXES.includes(axis))) {
+      return problem(422, 'VALIDATION_ERROR', 'targetAxes に不正または重複した軸があります。');
+    }
+    const created = await prisma.$transaction(async (tx) => {
+      const active = await tx.analysisSession.findFirst({ where: { status: { in: [...ACTIVE_STATUSES] } } });
+      if (active && body.startMode === 'START_NEW') return null;
+      if (active) {
+        await tx.analysisSession.updateMany({ where: { status: { in: [...ACTIVE_STATUSES] } }, data: { status: 'ABANDONED' } });
       }
-    }
-
-    // 新規 AnalysisSession の作成
-    const newSession = await prisma.analysisSession.create({
-      data: {
-        title,
-        status: 'ACTIVE',
-        targetAxes,
-      },
+      return tx.analysisSession.create({ data: { title, status: 'ACTIVE', targetAxes } });
     });
-
-    const responsePayload = {
-      id: newSession.id,
-      title: newSession.title,
-      status: newSession.status,
-      targetAxes: (newSession.targetAxes as SelfAnalysisAxis[]) || targetAxes,
-      progress: {
-        userMessageCount: 0,
-        confirmedExperienceCount: 0,
-        canGenerateResult: false,
-        coveredExperienceTypes: [],
-        missingAxes: targetAxes,
-      },
-      createdAt: newSession.createdAt instanceof Date ? newSession.createdAt.toISOString() : new Date(newSession.createdAt).toISOString(),
-      updatedAt: newSession.updatedAt instanceof Date ? newSession.updatedAt.toISOString() : new Date(newSession.updatedAt).toISOString(),
-      completedAt: null,
-    };
-
-    return Response.json(responsePayload, { status: 201 });
+    if (!created) return problem(409, 'CONFLICT', '進行中のセッションがあります。続けるか RESTART_ACTIVE を指定してください。');
+    return Response.json(await formatSession(created), { status: 201 });
   } catch (error) {
-    console.error('Error creating analysis session:', error);
-    return Response.json(
-      {
-        code: 'INTERNAL_ERROR',
-        message: 'セッション作成中にエラーが発生しました。',
-      },
-      { status: 500 }
-    );
+    return internalError(error, '自己分析セッションの作成');
   }
 }

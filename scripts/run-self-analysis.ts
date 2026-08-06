@@ -8,7 +8,7 @@ import {
 import type {
   ConversationMessage,
   ExperienceType,
-  HypothesisCategory,
+  SelfAnalysisAxis,
 } from "@/infrastructure/ai/types";
 
 const experienceTypes: Array<{
@@ -23,11 +23,11 @@ const experienceTypes: Array<{
   { value: "OTHER", label: "その他の印象的な経験" },
 ];
 
-const focusAreas: HypothesisCategory[] = [
-  "CAN",
-  "WANT",
-  "ENERGY",
-  "CONTEXT",
+const targetAxes: SelfAnalysisAxis[] = [
+  "ENERGY_SOURCE",
+  "ACTION_STYLE",
+  "SATISFACTION_SOURCE",
+  "PREFERRED_ENVIRONMENT",
 ];
 
 const terminal = createInterface({ input, output });
@@ -76,7 +76,7 @@ try {
 
   const sessionId = randomUUID();
   const messages: ConversationMessage[] = [];
-  let missingAreas = [...focusAreas];
+  let missingAxes = [...targetAxes];
   let experienceReady = false;
 
   while (true) {
@@ -141,9 +141,9 @@ try {
       turn = await ai.createChatTurn({
         session: {
           id: sessionId,
-          focusAreas,
+          targetAxes,
           coveredExperienceTypes: [],
-          missingAreas,
+          missingAxes,
         },
         messages,
       });
@@ -157,7 +157,7 @@ try {
       role: "ASSISTANT",
       content: turn.reply,
     });
-    missingAreas = turn.missingAreas;
+    missingAxes = turn.missingAxes;
     experienceReady = turn.experienceReady;
 
     console.log(`AI: ${turn.reply}`);

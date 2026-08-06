@@ -1,9 +1,7 @@
 export type AnalysisSessionStatus =
   | 'ACTIVE'
   | 'READY_TO_FINALIZE'
-  | 'ANALYZING'
   | 'COMPLETED'
-  | 'FAILED'
   | 'ABANDONED';
 
 export type SelfAnalysisAxis =
@@ -30,9 +28,7 @@ export type AxisPosition =
   | 'INSUFFICIENT_EVIDENCE';
 
 export type ResultFreshness = 'CURRENT' | 'STALE';
-
 export type DataWarningReason = 'FEW_COMPLETED_SESSIONS' | 'FEW_CONFIRMED_EXPERIENCES';
-
 export type EsDocumentStatus = 'DRAFT' | 'ANALYZED' | 'REVISED' | 'VERIFIED';
 
 export interface AnalysisProgress {
@@ -71,21 +67,19 @@ export interface ProfileInsight {
   evidenceIds: string[];
 }
 
-export interface OverallDataSummary {
-  completedSessionCount: number;
-  userMessageCount: number;
-  confirmedExperienceCount: number;
-  isDataSparse: boolean;
-  warningReasons: DataWarningReason[];
-}
-
 export interface OverallSelfAnalysisProfileResponse {
   id: string;
   summary: string;
   axes: OverallAxisTrend[];
   strengths: ProfileInsight[];
   weaknesses: ProfileInsight[];
-  dataSummary: OverallDataSummary;
+  dataSummary: {
+    completedSessionCount: number;
+    userMessageCount: number;
+    confirmedExperienceCount: number;
+    isDataSparse: boolean;
+    warningReasons: DataWarningReason[];
+  };
   sourceReportIds: string[];
   freshness: ResultFreshness;
   generatedAt: string;
