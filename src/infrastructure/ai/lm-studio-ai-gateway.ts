@@ -31,6 +31,15 @@ import {
 } from "./overall-output.ts";
 import { stabilizeAxisAssessmentsCandidate } from "./axis-output.ts";
 import { stabilizeSelfAnalysisReportCandidate } from "./report-output.ts";
+import {
+  stabilizeExperienceDraftCandidate,
+  stabilizeExperienceGroundingCandidate,
+} from './experience-output.ts';
+import {
+  stabilizeEsAnalysisCandidate,
+  stabilizeEsRevisionCandidate,
+} from './es-output.ts';
+import { stabilizeChatTurnCandidate } from './chat-output.ts';
 import type {
   ChatTurnInput,
   ChatTurnOutput,
@@ -126,6 +135,9 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       temperature: this.#config.chatTemperature,
       maxTokens: this.#config.chatMaxTokens,
       timeoutMs: this.#config.chatTimeoutMs,
+      beforeValidation: (value) => {
+        stabilizeChatTurnCandidate(value, input);
+      },
       afterValidation: (output) => {
         const questionMarks = [...output.reply.matchAll(/[？?]/gu)].length;
 
@@ -163,20 +175,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       maxTokens: this.#config.taskMaxTokens,
       timeoutMs: Math.max(1, deadline - Date.now()),
       beforeValidation: (value) => {
-        if (
-          value &&
-          typeof value === "object" &&
-          Array.isArray((value as { hypotheses?: unknown }).hypotheses)
-        ) {
-          const object = value as {
-            hypotheses: Array<{ statement?: unknown }>;
-          };
-          object.hypotheses = object.hypotheses.filter(
-            (hypothesis) =>
-              typeof hypothesis.statement === "string" &&
-              hypothesis.statement.trim() !== "",
-          );
-        }
+        stabilizeExperienceDraftCandidate(value, budgeted.input);
       },
       afterValidation: (output) => {
         if (output.type !== input.requestedType) {
@@ -234,6 +233,9 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       temperature: this.#config.structuredTemperature,
       maxTokens: Math.min(this.#config.taskMaxTokens, 2000),
       timeoutMs: Math.max(1, deadline - Date.now()),
+      beforeValidation: (value) => {
+        stabilizeExperienceGroundingCandidate(value, budgeted.input.messages);
+      },
       afterValidation: (output) => {
         const actualFields = output.assessments.map(
           (assessment) => assessment.field,
@@ -685,7 +687,10 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
-      timeoutMs: this.#config.taskTimeoutMs,
+      timeoutMs: this.#config.esTimeoutMs,
+      beforeValidation: (value) => {
+        stabilizeEsAnalysisCandidate(value, budgeted.input);
+      },
       afterValidation: (output) => {
         for (const claim of output.claims) {
           this.#verifySourceEvidence(claim.evidence, input);
@@ -736,7 +741,10 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: 0.3,
       maxTokens: this.#config.taskMaxTokens,
-      timeoutMs: this.#config.taskTimeoutMs,
+      timeoutMs: this.#config.esTimeoutMs,
+      beforeValidation: (value) => {
+        stabilizeEsRevisionCandidate(value, budgeted.input);
+      },
       afterValidation: (output) => {
         for (const change of output.changes) {
           this.#verifySourceEvidence(change.evidence, input);
@@ -890,7 +898,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
           );
         }
         console.warn(
-          `AI構造化出力の検証に失敗しました（${attempt + 1}/${this.#config.repairAttempts + 1}）。`,
+          `AI構造化出力の検証に失敗しました（${options.schemaFileName}、${attempt + 1}/${this.#config.repairAttempts + 1}）。`,
         );
         validationError = error;
       }

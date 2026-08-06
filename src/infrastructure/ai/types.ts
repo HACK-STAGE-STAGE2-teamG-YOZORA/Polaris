@@ -398,6 +398,7 @@ export type PolarisAiConfig = {
   taskMaxTokens: number;
   chatTimeoutMs: number;
   taskTimeoutMs: number;
+  esTimeoutMs: number;
   repairAttempts: number;
   contextLength: number;
   schemaReserveTokens: number;

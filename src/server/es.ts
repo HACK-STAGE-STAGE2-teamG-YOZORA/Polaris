@@ -2,6 +2,7 @@ import type { EsAnalysisInput, EsAnalysisOutput } from '@/infrastructure/ai/type
 import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { countCodePoints, iso, objectArray, stringArray } from './api';
+import { esSubmissionReadiness } from './es-readiness';
 
 type ClaimRecord = {
   id: string;
@@ -250,9 +251,11 @@ export function normalizeEsOutput(output: EsAnalysisOutput, input: EsAnalysisInp
   }));
   const characterCount = countCodePoints(input.text);
   const withinCharacterLimit = characterCount <= input.characterLimit;
-  const submissionReadiness: 'READY_TO_SUBMIT' | 'NEEDS_REVIEW' = withinCharacterLimit && output.questionCoverage === 'ANSWERED' && claims.every((claim) => claim.status === 'VERIFIED')
-    ? 'READY_TO_SUBMIT'
-    : 'NEEDS_REVIEW';
+  const submissionReadiness = esSubmissionReadiness({
+    withinCharacterLimit,
+    questionCoverage: output.questionCoverage,
+    claimStatuses: claims.map((claim) => claim.status),
+  });
   const comments = [
     ...claims.map((claim) => ({
       category: 'EVIDENCE_STATUS',
