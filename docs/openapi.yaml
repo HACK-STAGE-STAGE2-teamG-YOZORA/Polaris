@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Polaris API
-  version: 0.3.0
+  version: 0.4.0
   summary: 根拠付き自己分析とES推敲を行うローカルWebアプリのAPI契約
   description: |
     Polaris MVPのフロントエンドとバックエンド間の契約。
@@ -13,6 +13,8 @@ info:
     - ホームは過去結果一覧ではなく、全履歴から再計算した4軸、強み、弱み・注意点を表示する。
     - P0は単一デモユーザーとし、GoogleログインはP1で実装する。
     - ESの事実根拠には、確認済み経験と登録済み企業公式情報だけを使用する。
+    - ES原文は文章貼り付け、PNG/JPEG画像、PDFから入力でき、ファイル入力は抽出文を本人確認してから保存する。
+    - AIが返す完成版ES案は文章のみとし、画像・PDFファイルは生成しない。
     - `x-priority`がない操作はP0。`P1`・`P2`付き操作はP0完成後の拡張契約とする。
     - APIの日時はISO 8601 UTC、IDはUUID、JSONはUTF-8とする。
   contact:
@@ -806,6 +808,43 @@ paths:
                 $ref: '#/components/schemas/RecommendationRun'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/v1/es-text-extractions:
+    post:
+      tags: [ES]
+      operationId: extractEsText
+      summary: ES画像またはPDFから確認前の文章を抽出する
+      description: |
+        PNG/JPEGはローカルOCR、PDFは埋め込みテキスト抽出を優先し、必要なページだけローカルOCRを行う。
+        抽出結果は必ずユーザーが確認・修正してから`POST /es-documents`の`originalText`へ指定する。
+        アップロード元ファイル、未確認の抽出文、中間画像は永続化せず、外部OCR APIへ送信しない。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 最大10MB。PNG、JPEG、10ページ以下の暗号化されていないPDFのみ。
+      responses:
+        '200':
+          description: ユーザー確認前の文字抽出結果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsTextExtraction'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/v1/es-documents:
     get:
@@ -2652,6 +2691,63 @@ components:
       type: string
       enum: [DRAFT, ANALYZED, REVISED, VERIFIED]
 
+    EsInputSourceType:
+      type: string
+      enum: [PNG, JPEG, PDF]
+
+    EsTextExtractionMethod:
+      type: string
+      enum: [OCR, PDF_TEXT, PDF_TEXT_WITH_OCR]
+
+    EsTextExtraction:
+      type: object
+      required:
+        - sourceType
+        - extractionMethod
+        - originalFilename
+        - pageCount
+        - extractedText
+        - characterCount
+        - requiresReview
+        - warnings
+      properties:
+        sourceType:
+          $ref: '#/components/schemas/EsInputSourceType'
+        extractionMethod:
+          $ref: '#/components/schemas/EsTextExtractionMethod'
+        originalFilename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: 画面内の確認表示専用。DB・アプリケーションログへ保存しない。
+        pageCount:
+          description: PDFの場合はページ数、画像の場合は`null`。
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 10
+            - type: 'null'
+        extractedText:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          description: 未確認の抽出文。ユーザーが確認・修正するまでES原文として保存しない。
+        characterCount:
+          type: integer
+          minimum: 1
+          maximum: 20000
+        requiresReview:
+          type: boolean
+          const: true
+          description: OCRまたはPDF抽出結果の本人確認が必須であることを示す。
+        warnings:
+          type: array
+          maxItems: 20
+          description: 読み取り精度が低いページ、レイアウト崩れなどの確認事項。
+          items:
+            type: string
+            maxLength: 500
+
     EsDocumentSummary:
       type: object
       required: [id, companyId, targetRole, question, characterLimit, characterCount, status, createdAt, updatedAt]
@@ -2698,6 +2794,7 @@ components:
               type: string
               minLength: 1
               maxLength: 20000
+              description: 文章貼り付け、または画像/PDFから抽出後にユーザーが確認・修正したES原文。
             preferredExperienceIds:
               type: array
               uniqueItems: true
@@ -2745,6 +2842,7 @@ components:
           type: string
           minLength: 1
           maxLength: 20000
+          description: 文章貼り付け、または`EsTextExtraction.extractedText`をユーザーが確認・修正した文章。
         preferredExperienceIds:
           type: array
           uniqueItems: true
@@ -2785,6 +2883,7 @@ components:
           type: string
           minLength: 1
           maxLength: 20000
+          description: 入力方法にかかわらずユーザーが確認済みの文章。変更後は既存の検査・推敲結果を古くする。
         preferredExperienceIds:
           type: array
           uniqueItems: true
@@ -3052,7 +3151,7 @@ components:
           $ref: '#/components/schemas/ResultFreshness'
         revisedText:
           type: string
-          description: 提出可能品質を目標に生成した完成版ES案。verify完了前は提出可能と断定しない。
+          description: 提出可能品質を目標に生成した文章の完成版ES案。画像・PDFは生成せず、verify完了前は提出可能と断定しない。
         usedExperienceIds:
           type: array
           uniqueItems: true

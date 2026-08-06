@@ -415,6 +415,7 @@ type EsRevisionInput = EsAnalysisInput & {
 ### バックエンドの再検証
 
 - `revisedText`は設問への回答、文字数、本人らしさを満たす提出可能品質の完成版ES案として生成する。
+- AI Adapterは`revisedText`を文章としてのみ返す。画像・PDF・Base64・ファイルパスを出力契約へ追加しない。
 - `revisedText`を新しいESとして独立して再分析する。
 - 原文になかった主張は、許可根拠がある場合だけ残す。
 - `usedExperienceIds`と`usedSessionReportIds`が全履歴として渡した候補集合に存在すること。
