@@ -154,7 +154,8 @@ export async function withE2eServer(
         method,
         headers: options.body === undefined ? undefined : { "content-type": "application/json" },
         body: options.formData ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
-        signal: AbortSignal.timeout(180_000),
+        // API側の最長AI処理（既定180秒）がProblem Detailsを返すまで待つ。
+        signal: AbortSignal.timeout(200_000),
       });
       const text = await response.text();
       let body: unknown = null;

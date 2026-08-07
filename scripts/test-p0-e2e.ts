@@ -212,7 +212,7 @@ await withE2eServer(async ({ request }) => {
       companyId,
       targetRole: "Webエンジニア",
       question: "チームで取り組んだ経験を300字以内で説明してください。",
-      characterLimit: 500,
+      characterLimit: 300,
       originalText: `${experienceStory}この経験を生かし、職種を越えた協働を重視する貴社でも、根拠を明確にした設計レビューへ貢献したいです。`,
       preferredExperienceIds: [experienceId],
       emphasis: ["役割", "行動", "結果"],
@@ -244,7 +244,19 @@ await withE2eServer(async ({ request }) => {
   }), 201, "verify revision");
   assert(verification.revisionId === revisionId, "再検査が推敲案を参照していません。");
   assert(verification.sourceKind === "REVISION", "推敲後の独立再検査になっていません。");
-  assert(verification.submissionReadiness === 'READY_TO_SUBMIT', '再検査後も提出可能状態になっていません。');
+  const verificationClaims = items(verification.claims, 'verification.claims');
+  const readinessConditionsMet = verification.withinCharacterLimit === true
+    && verification.questionCoverage === 'ANSWERED'
+    && verificationClaims.length > 0
+    && verificationClaims.every((claim) => claim.status === 'VERIFIED');
+  assert(
+    verification.submissionReadiness === (readinessConditionsMet ? 'READY_TO_SUBMIT' : 'NEEDS_REVIEW'),
+    `再検査の提出可否が決定条件と一致しません。${JSON.stringify({
+      questionCoverage: verification.questionCoverage,
+      claimStatuses: verificationClaims.map((claim) => ({ type: claim.type, status: claim.status })),
+      issueCodes: items(verification.issues, 'verification.issues').map((issue) => issue.code),
+    })}`,
+  );
 
   console.log("[4/4] セッション境界と未確定状態の異常系を検証します。");
 

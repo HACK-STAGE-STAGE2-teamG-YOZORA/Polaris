@@ -297,6 +297,10 @@ export function buildEsRevisionPrompt(input: EsRevisionInput): {
 ルール:
 - 入力にない数字、期間、役割、結果、企業特徴、動機、価値観、将来目標を追加しない
 - 根拠のない主張は断定を弱めるか削除し、確認が必要ならquestionsForUserへ入れる
+- revisedTextの各事実主張は、allConfirmedExperiencesまたはOFFICIALのallowedCompanyFactsで直接確認できるものだけにする
+- 原文に書かれていても、確認済み経験・公式企業事実にない役割、成果、動機、将来目標はrevisedTextから削除する。原文そのものを事実根拠として扱わない
+- 設問が経験説明だけを求める場合、企業事実、企業への志望動機、将来の貢献、企業との相性をrevisedTextからすべて外す
+- 確認質問や注記をrevisedTextへ混ぜず、questionsForUserだけに入れる
 - questionへ直接答える構成にする
 - characterLimit以内を目指す
 - preserveExpressionsは意味を変えない

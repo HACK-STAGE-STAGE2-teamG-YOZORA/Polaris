@@ -56,6 +56,7 @@ export function loadPolarisAiConfig(): PolarisAiConfig {
     ),
     chatTimeoutMs: readPositiveInteger("AI_CHAT_TIMEOUT_MS", 60_000),
     taskTimeoutMs: readPositiveInteger("AI_TASK_TIMEOUT_MS", 120_000),
+    esTimeoutMs: readPositiveInteger("AI_ES_TIMEOUT_MS", 180_000),
     repairAttempts: Math.max(
       0,
       Math.trunc(readNumber("AI_JSON_REPAIR_MAX_ATTEMPTS", 1)),
