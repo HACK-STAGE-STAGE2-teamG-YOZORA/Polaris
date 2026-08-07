@@ -34,6 +34,7 @@ export function countEsCharacters(text: string): number {
 ### 2.1 ES画像・PDFからの文字抽出
 
 - P0で受け付けるMIME typeは`image/png`、`image/jpeg`、`application/pdf`だけとする。
+- P0は1回1ファイル・1設問の回答本文として扱う。複数設問や複数画像は分けて登録する。
 - 1ファイル10MB（10 × 1024 × 1024 bytes）以下、PDFは10ページ以下とする。
 - 拡張子やブラウザ送信のContent-Typeだけを信用せず、ファイルシグネチャと実データを検査する。
 - パスワード付き・暗号化PDF、破損ファイル、文字を抽出できないファイルは`422 VALIDATION_ERROR`とする。
