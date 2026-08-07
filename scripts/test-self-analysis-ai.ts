@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { LmStudioPolarisAiGateway } from "../src/infrastructure/ai/lm-studio-ai-gateway.ts";
+import { filterAndRecoverMessageQuotes } from "../src/infrastructure/ai/quotes.ts";
 import type { ConversationMessage } from "../src/infrastructure/ai/types.ts";
 
 const ai = new LmStudioPolarisAiGateway();
@@ -14,15 +15,35 @@ const messages: ConversationMessage[] = [
   },
 ];
 
+const invalidQuotes = filterAndRecoverMessageQuotes(
+  [
+    {
+      messageId: userMessageId,
+      quote: "雰囲气を和ませよう",
+    },
+  ],
+  [
+    {
+      id: userMessageId,
+      role: "USER",
+      content: "どうやって雰囲気を和ませよう",
+    },
+  ],
+);
+
+if (invalidQuotes.length !== 0) {
+  throw new Error("原文と異なる引用候補を破棄できませんでした。");
+}
+
 try {
   console.log("自己分析チャットを生成しています...");
 
   const turn = await ai.createChatTurn({
     session: {
       id: randomUUID(),
-      focusAreas: ["CAN", "WANT", "ENERGY", "CONTEXT"],
+      targetAxes: ["ENERGY_SOURCE", "ACTION_STYLE", "SATISFACTION_SOURCE", "PREFERRED_ENVIRONMENT"],
       coveredExperienceTypes: [],
-      missingAreas: ["CAN", "WANT", "ENERGY", "CONTEXT"],
+      missingAxes: ["ENERGY_SOURCE", "ACTION_STYLE", "SATISFACTION_SOURCE", "PREFERRED_ENVIRONMENT"],
     },
     messages,
   });

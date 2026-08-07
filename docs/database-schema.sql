@@ -7,8 +7,8 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE analysis_sessions (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'READY_TO_FINALIZE', 'COMPLETED')),
-  focus_areas_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'READY_TO_FINALIZE', 'COMPLETED', 'ABANDONED')),
+  target_axes_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT
@@ -20,9 +20,12 @@ CREATE TABLE messages (
   role TEXT NOT NULL CHECK (role IN ('USER', 'ASSISTANT')),
   content TEXT NOT NULL,
   question_target TEXT CHECK (question_target IN (
-    'CAN', 'WANT', 'ENERGY', 'CONTEXT', 'EXPERIENCE_DETAIL',
+    'ENERGY_SOURCE', 'ACTION_STYLE', 'SATISFACTION_SOURCE',
+    'PREFERRED_ENVIRONMENT', 'EXPERIENCE_DETAIL',
     'CONTRADICTION', 'CONFIRMATION'
   )),
+  evidence_candidates_json TEXT,
+  turn_metadata_json TEXT,
   client_message_id TEXT UNIQUE,
   created_at TEXT NOT NULL
 );
@@ -33,6 +36,7 @@ CREATE INDEX idx_messages_session_created
 CREATE TABLE experiences (
   id TEXT PRIMARY KEY,
   source_session_id TEXT REFERENCES analysis_sessions(id) ON DELETE SET NULL,
+  source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   type TEXT NOT NULL CHECK (type IN (
     'ENGAGED', 'ACHIEVEMENT', 'CHALLENGE', 'DRAINING_SUCCESS',
     'TEAM_CONFLICT', 'OTHER'
@@ -57,6 +61,7 @@ CREATE TABLE experiences (
 );
 
 CREATE INDEX idx_experiences_status ON experiences(status);
+CREATE INDEX idx_experiences_source_message ON experiences(source_message_id);
 
 CREATE TABLE experience_quotes (
   id TEXT PRIMARY KEY,
@@ -67,11 +72,16 @@ CREATE TABLE experience_quotes (
   UNIQUE (experience_id, message_id, quote)
 );
 
-CREATE TABLE evidence_items (
+CREATE TABLE axis_evidence_items (
   id TEXT PRIMARY KEY,
   experience_id TEXT NOT NULL REFERENCES experiences(id) ON DELETE CASCADE,
   message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
-  category TEXT NOT NULL CHECK (category IN ('CAN', 'WANT', 'ENERGY', 'CONTEXT')),
+  axis TEXT NOT NULL CHECK (axis IN (
+    'ENERGY_SOURCE', 'ACTION_STYLE', 'SATISFACTION_SOURCE', 'PREFERRED_ENVIRONMENT'
+  )),
+  pole TEXT NOT NULL CHECK (pole IN (
+    'LEFT', 'RIGHT', 'BOTH', 'CONTEXT_DEPENDENT', 'UNKNOWN'
+  )),
   statement TEXT NOT NULL,
   support_type TEXT NOT NULL CHECK (support_type IN ('SUPPORT', 'COUNTER', 'UNKNOWN')),
   quote TEXT NOT NULL,
@@ -79,19 +89,27 @@ CREATE TABLE evidence_items (
   created_at TEXT NOT NULL
 );
 
-CREATE INDEX idx_evidence_experience ON evidence_items(experience_id);
-CREATE INDEX idx_evidence_category ON evidence_items(category);
+CREATE INDEX idx_axis_evidence_experience ON axis_evidence_items(experience_id);
+CREATE INDEX idx_axis_evidence_axis_pole ON axis_evidence_items(axis, pole);
 
-CREATE TABLE career_hypotheses (
+CREATE TABLE axis_assessments (
   id TEXT PRIMARY KEY,
-  category TEXT NOT NULL CHECK (category IN ('CAN', 'WANT', 'ENERGY', 'CONTEXT')),
+  source_session_id TEXT NOT NULL REFERENCES analysis_sessions(id) ON DELETE CASCADE,
+  axis TEXT NOT NULL CHECK (axis IN (
+    'ENERGY_SOURCE', 'ACTION_STYLE', 'SATISFACTION_SOURCE', 'PREFERRED_ENVIRONMENT'
+  )),
+  position TEXT NOT NULL CHECK (position IN (
+    'LEFT', 'LEANS_LEFT', 'BALANCED_OR_BOTH', 'LEANS_RIGHT', 'RIGHT',
+    'CONTEXT_DEPENDENT', 'INSUFFICIENT_EVIDENCE'
+  )),
   ai_statement TEXT NOT NULL,
   display_statement TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN (
     'CONFIRMED_PATTERN', 'CURRENT_HYPOTHESIS', 'INSUFFICIENT_EVIDENCE'
   )),
-  enabling_conditions_json TEXT NOT NULL DEFAULT '[]',
-  risk_conditions_json TEXT NOT NULL DEFAULT '[]',
+  left_conditions_json TEXT NOT NULL DEFAULT '[]',
+  right_conditions_json TEXT NOT NULL DEFAULT '[]',
+  context_notes_json TEXT NOT NULL DEFAULT '[]',
   user_assessment TEXT NOT NULL CHECK (user_assessment IN (
     'UNREVIEWED', 'MATCHES', 'PARTIALLY_MATCHES',
     'DOES_NOT_MATCH', 'NEEDS_EXPLORATION'
@@ -100,40 +118,55 @@ CREATE TABLE career_hypotheses (
   internal_confidence REAL CHECK (
     internal_confidence IS NULL OR internal_confidence BETWEEN 0 AND 1
   ),
+  is_stale INTEGER NOT NULL DEFAULT 0 CHECK (is_stale IN (0, 1)),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  UNIQUE (source_session_id, axis)
 );
 
-CREATE INDEX idx_hypotheses_category_status
-  ON career_hypotheses(category, status);
+CREATE INDEX idx_axis_assessments_axis_status
+  ON axis_assessments(axis, status);
 
-CREATE TABLE hypothesis_evidence (
-  hypothesis_id TEXT NOT NULL REFERENCES career_hypotheses(id) ON DELETE CASCADE,
-  evidence_id TEXT NOT NULL REFERENCES evidence_items(id) ON DELETE RESTRICT,
-  PRIMARY KEY (hypothesis_id, evidence_id)
+CREATE TABLE axis_assessment_evidence (
+  axis_assessment_id TEXT NOT NULL REFERENCES axis_assessments(id) ON DELETE CASCADE,
+  evidence_id TEXT NOT NULL REFERENCES axis_evidence_items(id) ON DELETE RESTRICT,
+  PRIMARY KEY (axis_assessment_id, evidence_id)
 );
 
-CREATE TABLE career_reports (
+CREATE TABLE self_analysis_reports (
   id TEXT PRIMARY KEY,
-  source_session_id TEXT NOT NULL REFERENCES analysis_sessions(id) ON DELETE RESTRICT,
+  source_session_id TEXT NOT NULL UNIQUE REFERENCES analysis_sessions(id) ON DELETE RESTRICT,
   summary TEXT NOT NULL,
-  confirmed_can_json TEXT NOT NULL DEFAULT '[]',
-  current_hypotheses_json TEXT NOT NULL DEFAULT '[]',
-  wants_json TEXT NOT NULL DEFAULT '[]',
-  energizing_activities_json TEXT NOT NULL DEFAULT '[]',
-  draining_activities_json TEXT NOT NULL DEFAULT '[]',
-  enabling_contexts_json TEXT NOT NULL DEFAULT '[]',
-  risk_contexts_json TEXT NOT NULL DEFAULT '[]',
+  axis_snapshots_json TEXT NOT NULL DEFAULT '[]',
   must_conditions_json TEXT NOT NULL DEFAULT '[]',
   prefer_conditions_json TEXT NOT NULL DEFAULT '[]',
   avoid_conditions_json TEXT NOT NULL DEFAULT '[]',
   verify_conditions_json TEXT NOT NULL DEFAULT '[]',
   next_experiments_json TEXT NOT NULL DEFAULT '[]',
+  user_message_count INTEGER NOT NULL CHECK (user_message_count >= 1),
+  confirmed_experience_count INTEGER NOT NULL CHECK (confirmed_experience_count >= 0),
   is_stale INTEGER NOT NULL DEFAULT 0 CHECK (is_stale IN (0, 1)),
   generated_at TEXT NOT NULL
 );
 
-CREATE INDEX idx_career_reports_generated ON career_reports(generated_at DESC);
+CREATE INDEX idx_self_analysis_reports_generated ON self_analysis_reports(generated_at DESC);
+
+CREATE TABLE overall_self_analysis_profiles (
+  id TEXT PRIMARY KEY CHECK (id = 'default'),
+  summary TEXT NOT NULL,
+  axis_trends_json TEXT NOT NULL DEFAULT '[]',
+  strengths_json TEXT NOT NULL DEFAULT '[]',
+  weaknesses_json TEXT NOT NULL DEFAULT '[]',
+  source_report_ids_json TEXT NOT NULL DEFAULT '[]',
+  completed_session_count INTEGER NOT NULL CHECK (completed_session_count >= 1),
+  user_message_count INTEGER NOT NULL CHECK (user_message_count >= 1),
+  confirmed_experience_count INTEGER NOT NULL CHECK (confirmed_experience_count >= 0),
+  is_data_sparse INTEGER NOT NULL CHECK (is_data_sparse IN (0, 1)),
+  data_warning_reasons_json TEXT NOT NULL DEFAULT '[]',
+  freshness TEXT NOT NULL CHECK (freshness IN ('CURRENT', 'STALE')),
+  generated_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 
 CREATE TABLE companies (
   id TEXT PRIMARY KEY,
@@ -162,6 +195,7 @@ CREATE TABLE company_sources (
   source_url TEXT,
   raw_text TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  unknown_items_json TEXT NOT NULL DEFAULT '[]',
   retrieved_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
@@ -186,12 +220,12 @@ CREATE INDEX idx_company_facts_category ON company_facts(category);
 
 CREATE TABLE es_documents (
   id TEXT PRIMARY KEY,
-  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE RESTRICT,
+  company_id TEXT REFERENCES companies(id) ON DELETE SET NULL,
   target_role TEXT,
   question TEXT NOT NULL,
   character_limit INTEGER NOT NULL CHECK (character_limit BETWEEN 1 AND 10000),
   original_text TEXT NOT NULL,
-  selected_experience_ids_json TEXT NOT NULL DEFAULT '[]',
+  preferred_experience_ids_json TEXT NOT NULL DEFAULT '[]',
   emphasis_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL CHECK (status IN ('DRAFT', 'ANALYZED', 'REVISED', 'VERIFIED')),
   created_at TEXT NOT NULL,
@@ -211,7 +245,9 @@ CREATE TABLE es_analyses (
   question_coverage TEXT NOT NULL CHECK (question_coverage IN (
     'ANSWERED', 'PARTIALLY_ANSWERED', 'NOT_ANSWERED'
   )),
+  submission_readiness TEXT NOT NULL CHECK (submission_readiness IN ('READY_TO_SUBMIT', 'NEEDS_REVIEW')),
   issues_json TEXT NOT NULL DEFAULT '[]',
+  comments_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
 
@@ -231,6 +267,8 @@ CREATE TABLE es_claims (
     'VERIFIED', 'PARTIALLY_VERIFIED', 'NEEDS_CONFIRMATION', 'CONTRADICTED'
   )),
   explanation TEXT,
+  start_offset INTEGER CHECK (start_offset IS NULL OR start_offset >= 0),
+  end_offset INTEGER CHECK (end_offset IS NULL OR end_offset > start_offset),
   created_at TEXT NOT NULL
 );
 
@@ -252,6 +290,8 @@ CREATE TABLE es_revisions (
   based_on_analysis_id TEXT NOT NULL REFERENCES es_analyses(id) ON DELETE RESTRICT,
   freshness TEXT NOT NULL CHECK (freshness IN ('CURRENT', 'STALE')),
   revised_text TEXT NOT NULL,
+  used_experience_ids_json TEXT NOT NULL DEFAULT '[]',
+  used_session_report_ids_json TEXT NOT NULL DEFAULT '[]',
   character_count INTEGER NOT NULL CHECK (character_count >= 0),
   verification_analysis_id TEXT REFERENCES es_analyses(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL
@@ -276,7 +316,7 @@ CREATE INDEX idx_revision_changes_revision ON revision_changes(es_revision_id);
 
 CREATE TABLE recommendation_runs (
   id TEXT PRIMARY KEY,
-  career_report_id TEXT NOT NULL REFERENCES career_reports(id) ON DELETE RESTRICT,
+  self_analysis_report_id TEXT NOT NULL REFERENCES self_analysis_reports(id) ON DELETE RESTRICT,
   status TEXT NOT NULL CHECK (status IN (
     'QUEUED', 'FETCHING_SOURCES', 'ANALYZING', 'COMPLETED',
     'PARTIALLY_COMPLETED', 'FAILED'
