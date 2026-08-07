@@ -1,4 +1,5 @@
 import type { PolarisAiConfig } from "./types.ts";
+import { normalizeLocalLmStudioBaseUrl } from './local-endpoint.ts';
 
 function readNumber(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -42,8 +43,7 @@ export function loadPolarisAiConfig(): PolarisAiConfig {
   }
 
   return {
-    baseUrl:
-      process.env.LM_STUDIO_BASE_URL ?? "http://127.0.0.1:1234",
+    baseUrl: normalizeLocalLmStudioBaseUrl(process.env.LM_STUDIO_BASE_URL),
     modelId,
     chatTemperature: readNumber("AI_CHAT_TEMPERATURE", 0.6),
     structuredTemperature: readNumber(

@@ -1,7 +1,7 @@
 import { LmStudioPolarisAiGateway } from '@/infrastructure/ai/lm-studio-ai-gateway';
 import { fetchCompanyUrl, SafeUrlFetchError } from '@/infrastructure/fetch/safe-url-fetcher';
 import { prisma } from '@/lib/prisma';
-import { stringArray } from '@/server/api';
+import { logSafeError, stringArray } from '@/server/api';
 import { persistCompanySource } from '@/server/company';
 import type { RecommendationWarning } from '@/server/recommendation';
 
@@ -217,7 +217,7 @@ async function processRecommendationRun(runId: string): Promise<void> {
       });
     });
   } catch (error) {
-    console.error('企業提案runner:', error);
+    logSafeError('企業提案runner', error);
     await prisma.recommendationRun.updateMany({
       where: { id: runId, status: { in: [...ACTIVE_STATUSES] } },
       data: { status: 'FAILED', completedAt: new Date() },

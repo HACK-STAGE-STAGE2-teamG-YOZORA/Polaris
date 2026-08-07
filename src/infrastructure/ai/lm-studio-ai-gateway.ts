@@ -890,8 +890,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
           );
         }
         console.warn(
-          `AI構造化出力の検証に失敗しました（${attempt + 1}/${this.#config.repairAttempts + 1}）:`,
-          error instanceof Error ? error.message : String(error),
+          `AI構造化出力の検証に失敗しました（${attempt + 1}/${this.#config.repairAttempts + 1}）。`,
         );
         validationError = error;
       }

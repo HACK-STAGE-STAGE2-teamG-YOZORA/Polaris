@@ -1,4 +1,7 @@
 import { PolarisAiError } from '@/infrastructure/ai/lm-studio-ai-gateway';
+import { logSafeError } from '@/server/safe-log';
+
+export { logSafeError, safeErrorDiagnostic } from '@/server/safe-log';
 
 export const SELF_ANALYSIS_AXES = [
   'ENERGY_SOURCE',
@@ -35,7 +38,7 @@ export function problem(
 }
 
 export function internalError(error: unknown, operation: string): Response {
-  console.error(`${operation}:`, error);
+  logSafeError(operation, error);
   return problem(500, 'INTERNAL_ERROR', `${operation}中にエラーが発生しました。`);
 }
 
