@@ -270,7 +270,7 @@ sequenceDiagram
     end
     Run->>AI: 自己分析レポート + 確認済み経験 + 企業事実
     AI-->>Run: 本命・挑戦・意外枠の候補
-    Run->>Run: 全IDと出典を再検証
+    Run->>Run: 全ID・出典・企業重複・枠偏りを再検証
     Run->>DB: 提案とCOMPLETEDを保存
     UI->>API: GET /company-recommendation-runs/{id}
     API-->>UI: 進捗または提案結果
@@ -279,7 +279,41 @@ sequenceDiagram
 ローカルMVPではRedis等の外部キューを導入せず、SQLiteへ実行状態を保存する単一プロセスrunnerとする。
 開発サーバー再起動後は`QUEUED`または処理中のrunを`FAILED`へ更新し、再実行を案内する。
 
-## 11. 整合性と再計算
+企業提案の入力がコンテキスト上限を超える場合は、各候補企業・各確認済み経験を最低1件残したまま、関連度の低い追加事実、追加出典、追加経験の順で除外する。企業事実と原文引用の途中切断は行わない。最小構成でも収まらない場合はAIを呼ばず`AI_INPUT_TOO_LARGE`を返す。
+
+## 11. 面接深掘り質問・逆質問
+
+面接質問生成はP1の同期APIとし、生成結果は永続化しない。P2の音声入力・模擬面接とは分離する。
+
+```mermaid
+sequenceDiagram
+    actor User as ユーザー
+    participant UI as Frontend
+    participant API as API
+    participant DB as SQLite
+    participant AI as AI Adapter
+
+    User->>UI: 面接質問の生成条件を指定
+    UI->>API: POST /interview-questions/generate
+    API->>DB: 最新レポートと確認済み経験を取得
+    opt ES指定
+        API->>DB: 本人確認済みESを取得
+    end
+    opt 企業指定
+        API->>DB: 企業と公式出典・事実を取得
+    end
+    API->>AI: レポート + 経験 + 任意のES・公式企業情報
+    AI-->>API: 深掘り質問 + 逆質問 + 根拠ID
+    API->>API: 質問数・重複・全根拠IDを再検証
+    API-->>UI: 200 + 生成日時 + 使用コンテキストID
+```
+
+- 深掘り質問は必ず入力した確認済み経験IDへ接続する。
+- 企業指定時の逆質問は対象企業の公式出典IDへ接続する。企業未指定時は出典IDを空配列とし、自己分析と対象職種に基づく一般質問だけを返す。
+- 適性率、能力点数、内定確率を生成しない。
+- 入力超過時は関連度の低い追加事実、追加出典、追加経験を除外し、事実や引用を途中で切らない。最小構成でも収まらない場合は`AI_INPUT_TOO_LARGE`を返す。
+
+## 12. 整合性と再計算
 
 以下の変更時は関連結果を`STALE`にする。
 

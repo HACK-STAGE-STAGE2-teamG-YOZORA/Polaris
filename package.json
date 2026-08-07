@@ -14,7 +14,7 @@
     "test:ai-schema": "node scripts/test-ai-schema.ts",
     "test:p0-e2e": "node --env-file=.env scripts/test-p0-e2e.ts",
     "test:ai-errors": "node --env-file=.env scripts/test-ai-errors.ts",
-    "test:p1-units": "node scripts/test-p1-units.ts",
+    "test:p1-units": "node scripts/test-p1-units.ts && node scripts/test-company-facts-output-safety.ts && node scripts/test-recommendation-output-safety.ts && node scripts/test-interview-output-safety.ts",
     "test:es-extraction": "node scripts/test-es-extraction.ts",
     "test:ai-context": "node scripts/test-ai-context.ts",
     "test:local-ai": "node scripts/test-local-ai.ts",
