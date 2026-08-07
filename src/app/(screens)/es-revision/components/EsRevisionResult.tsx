@@ -2,10 +2,10 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
-import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
+import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { EsDocument, EsRevision } from "@/types/es-document";
 
 interface EsRevisionResultProps {
@@ -15,7 +15,8 @@ interface EsRevisionResultProps {
   loading: boolean;
 }
 
-// 添削結果画面。原文と推敲後の文章を並べて表示し、「コメントをもらう」で再検査(verify)へ進む
+// 添削結果画面。「添削」バッジ付きの原文カード → 「修正結果」見出し →
+// オレンジ枠の修正後テキストカード、という縦並び構成。「コメントをもらう」で再検査(verify)へ進む
 export function EsRevisionResult({
   esDocument,
   esRevision,
@@ -24,34 +25,63 @@ export function EsRevisionResult({
 }: EsRevisionResultProps) {
   return (
     <Stack spacing={2}>
-      <Paper variant="outlined" sx={{ p: 2 }}>
+      <Box
+        sx={{
+          borderRadius: 3,
+          border: `1px solid ${CHAT_COLORS.navyBorder}`,
+          bgcolor: CHAT_COLORS.navySurface,
+          p: 2,
+        }}
+      >
         <Stack spacing={1}>
           <Box>
-            <Chip label="添削" size="small" color="primary" />
+            <Chip
+              label="添削"
+              size="small"
+              sx={{ bgcolor: CHAT_COLORS.orange, color: CHAT_COLORS.bubbleText, fontWeight: 700 }}
+            />
           </Box>
-          <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
+          <Typography variant="body1" sx={{ color: CHAT_COLORS.textOnDark, whiteSpace: "pre-wrap" }}>
             {esDocument.originalText}
           </Typography>
         </Stack>
-      </Paper>
+      </Box>
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
+      <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
+        修正結果
+      </Typography>
+
+      <Box
+        sx={{
+          borderRadius: 3,
+          border: `2px solid ${CHAT_COLORS.orange}`,
+          bgcolor: CHAT_COLORS.navySurface,
+          p: 2,
+        }}
+      >
         <Stack spacing={1}>
-          <Typography variant="subtitle1">修正結果</Typography>
-          <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
+          <Typography variant="body1" sx={{ color: CHAT_COLORS.textOnDark, whiteSpace: "pre-wrap" }}>
             {esRevision.revisedText}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
             {esRevision.characterCount} / {esDocument.characterLimit}文字
           </Typography>
         </Stack>
-      </Paper>
+      </Box>
 
       <Button
         variant="contained"
         onClick={onRequestComments}
         disabled={loading}
         startIcon={loading ? <CircularProgress size={16} color="inherit" /> : undefined}
+        sx={{
+          bgcolor: CHAT_COLORS.orange,
+          color: CHAT_COLORS.bubbleText,
+          fontWeight: 700,
+          borderRadius: "999px",
+          "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
+          "&.Mui-disabled": { bgcolor: CHAT_COLORS.orangeMuted, color: CHAT_COLORS.textOnDarkMuted },
+        }}
       >
         コメントをもらう
       </Button>

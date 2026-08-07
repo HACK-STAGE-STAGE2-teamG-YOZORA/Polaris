@@ -1,6 +1,6 @@
 "use client";
 
-import Container from "@mui/material/Container";
+import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
@@ -9,6 +9,7 @@ import { EsErrorBanner } from "./components/EsErrorBanner";
 import { EsInputForm } from "./components/EsInputForm";
 import { EsRevisionResult } from "./components/EsRevisionResult";
 import { useEsRevision } from "./use-es-revision";
+import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 
 // このファイルは状態とAPI呼び出しを持つuseEsRevisionフックと、
 // 見た目だけを担うcomponents/配下を繋ぐだけの薄い層にする。
@@ -31,40 +32,54 @@ export default function EsRevisionPage() {
   } = useEsRevision();
 
   return (
-    <Container maxWidth="sm" sx={{ py: 4 }}>
-      <Stack spacing={2}>
-        <Typography variant="h5" component="h1">
-          ES推敲
-        </Typography>
+    <Box
+      sx={{
+        minHeight: "100dvh",
+        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientBottom} 100%)`,
+        display: "flex",
+        justifyContent: "center",
+        pb: "72px",
+      }}
+    >
+      <Box sx={{ width: "100%", maxWidth: 560, px: 2, pt: 3 }}>
+        <Stack spacing={2}>
+          <Typography
+            variant="h5"
+            component="h1"
+            sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700, textAlign: "center" }}
+          >
+            ES推敲
+          </Typography>
 
-        {error && <EsErrorBanner error={error} />}
+          {error && <EsErrorBanner error={error} />}
 
-        {step === "INPUT" && (
-          <EsInputForm
-            submitting={submitting}
-            fieldErrors={error?.fieldErrors ?? {}}
-            onSubmit={(request) => void startRevision(request)}
-          />
-        )}
+          {step === "INPUT" && (
+            <EsInputForm
+              submitting={submitting}
+              fieldErrors={error?.fieldErrors ?? {}}
+              onSubmit={(request) => void startRevision(request)}
+            />
+          )}
 
-        {step === "RESULT" && esDocument && esRevision && (
-          <EsRevisionResult
-            esDocument={esDocument}
-            esRevision={esRevision}
-            onRequestComments={() => void requestComments()}
-            loading={verifying}
-          />
-        )}
+          {step === "RESULT" && esDocument && esRevision && (
+            <EsRevisionResult
+              esDocument={esDocument}
+              esRevision={esRevision}
+              onRequestComments={() => void requestComments()}
+              loading={verifying}
+            />
+          )}
 
-        {step === "COMMENTS" && esDocument && verifyAnalysis && submissionReadiness && (
-          <EsComments
-            analysis={verifyAnalysis}
-            characterLimit={esDocument.characterLimit}
-            comments={comments}
-            submissionReadiness={submissionReadiness}
-          />
-        )}
-      </Stack>
-    </Container>
+          {step === "COMMENTS" && esDocument && verifyAnalysis && submissionReadiness && (
+            <EsComments
+              analysis={verifyAnalysis}
+              characterLimit={esDocument.characterLimit}
+              comments={comments}
+              submissionReadiness={submissionReadiness}
+            />
+          )}
+        </Stack>
+      </Box>
+    </Box>
   );
 }
