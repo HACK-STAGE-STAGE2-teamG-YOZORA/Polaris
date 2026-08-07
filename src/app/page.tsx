@@ -1,62 +1,55 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
-import IconButton from "@mui/material/IconButton";
 import Paper from "@mui/material/Paper";
 import SvgIcon from "@mui/material/SvgIcon";
 import Typography from "@mui/material/Typography";
 
+import { apiGet } from "@/lib/api/client";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
+import type {
+  AxisPosition,
+  DashboardResponse,
+  OverallSelfAnalysisProfileResponse,
+  SelfAnalysisAxis,
+} from "@/types/dashboard";
 
 type Axis = {
   left: string;
   leftJa: string;
   right: string;
   rightJa: string;
-  position: number;
+  position: number | null;
 };
 
-type AnalysisResult = {
-  axes: Axis[];
-  strength: string;
-  weakness: string;
+const AXIS_LABELS: Record<SelfAnalysisAxis, Omit<Axis, "position">> = {
+  ENERGY_SOURCE: { left: "focus", leftJa: "集中派", right: "connect", rightJa: "共創派" },
+  ACTION_STYLE: { left: "plan", leftJa: "設計派", right: "experiment", rightJa: "実験派" },
+  SATISFACTION_SOURCE: { left: "mastery", leftJa: "習熟", right: "impact", rightJa: "貢献" },
+  PREFERRED_ENVIRONMENT: { left: "stable", leftJa: "安定", right: "dynamic", rightJa: "変化" },
 };
 
-// 後でAPIから取得する自己分析結果を、この配列に入れる構成にする。
-// ページを切り替えると、軸・強み・弱みが常に同じ分析結果の内容へそろって変わる。
-const RESULTS: AnalysisResult[] = [
-  {
-    axes: [
-      { left: "focus", leftJa: "集中派", right: "connect", rightJa: "共創派", position: 70 },
-      { left: "plan", leftJa: "設計派", right: "experiment", rightJa: "実験派", position: 59 },
-      { left: "mastery", leftJa: "習熟", right: "impact", rightJa: "貢献", position: 74 },
-      { left: "stable", leftJa: "安定", right: "dynamic", rightJa: "変化", position: 48 },
-    ],
-    strength: "課題を見つけたら、自分から調べて行動に移すことが得意です。わからないことがあっても、まずは挑戦してみる姿勢を大切にしています。新しいことにも前向きに取り組めます。",
-    weakness: "一人で抱え込んでしまうことがあります。そのため、困ったときは早めに相談することを意識しています。周囲と協力することの大切さを学んでいます。",
-  },
-  {
-    axes: [
-      { left: "focus", leftJa: "集中派", right: "connect", rightJa: "共創派", position: 55 },
-      { left: "plan", leftJa: "設計派", right: "experiment", rightJa: "実験派", position: 70 },
-      { left: "mastery", leftJa: "習熟", right: "impact", rightJa: "貢献", position: 61 },
-      { left: "stable", leftJa: "安定", right: "dynamic", rightJa: "変化", position: 66 },
-    ],
-    strength: "新しい方法を試し、そこから得た気づきを次の行動へ生かせます。変化がある状況でも、周囲と話しながら前に進める力があります。",
-    weakness: "可能性を広く考える分、最初の一歩を決めるまでに時間がかかることがあります。期限と優先順位を先に決めることで改善しています。",
-  },
-  {
-    axes: [
-      { left: "focus", leftJa: "集中派", right: "connect", rightJa: "共創派", position: 77 },
-      { left: "plan", leftJa: "設計派", right: "experiment", rightJa: "実験派", position: 47 },
-      { left: "mastery", leftJa: "習熟", right: "impact", rightJa: "貢献", position: 80 },
-      { left: "stable", leftJa: "安定", right: "dynamic", rightJa: "変化", position: 41 },
-    ],
-    strength: "目標に必要な知識を深く身につけ、着実に質を高めていけます。小さな改善を積み重ねる粘り強さがあります。",
-    weakness: "完成度を求めすぎて、途中の段階で共有することをためらう場合があります。早い段階でフィードバックをもらうよう心がけています。",
-  },
-];
+const AXIS_ORDER = Object.keys(AXIS_LABELS) as SelfAnalysisAxis[];
+
+function axisPositionToPercent(position: AxisPosition): number | null {
+  const positions: Partial<Record<AxisPosition, number>> = {
+    LEFT: 20,
+    LEANS_LEFT: 35,
+    BALANCED_OR_BOTH: 50,
+    LEANS_RIGHT: 65,
+    RIGHT: 80,
+  };
+  return positions[position] ?? null;
+}
+
+function buildAxes(profile: OverallSelfAnalysisProfileResponse): Axis[] {
+  const trends = new Map(profile.axes.map((trend) => [trend.axis, trend]));
+  return AXIS_ORDER.map((axis) => ({
+    ...AXIS_LABELS[axis],
+    position: axisPositionToPercent(trends.get(axis)?.position ?? "INSUFFICIENT_EVIDENCE"),
+  }));
+}
 
 function Constellation() {
   return (
@@ -65,7 +58,7 @@ function Constellation() {
         <path d="M12 12 45 29 58 58 43 79 77 104 101 87 72 62" />
         <path d="M77 104 101 87" />
       </g>
-      {[ [12, 12], [45, 29], [58, 58], [43, 79], [77, 104], [101, 87], [72, 62] ].map(([cx, cy]) => (
+      {[[12, 12], [45, 29], [58, 58], [43, 79], [77, 104], [101, 87], [72, 62]].map(([cx, cy]) => (
         <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="3.4" fill="#fff" />
       ))}
     </Box>
@@ -81,7 +74,7 @@ function AxisRow({ axis }: { axis: Axis }) {
       </Box>
       <Box sx={{ position: "relative", height: 28, display: "flex", alignItems: "center" }}>
         <Box sx={{ width: "100%", height: 4, borderRadius: 999, bgcolor: "rgba(255,255,255,0.92)" }} />
-        <Box sx={{ position: "absolute", left: `calc(${axis.position}% - 11px)`, width: 22, height: 22, borderRadius: "50%", bgcolor: "#F6C95D", boxShadow: "0 1px 5px rgba(0,0,0,.35)" }} />
+        {axis.position !== null && <Box sx={{ position: "absolute", left: `calc(${axis.position}% - 11px)`, width: 22, height: 22, borderRadius: "50%", bgcolor: "#F6C95D", boxShadow: "0 1px 5px rgba(0,0,0,.35)" }} />}
       </Box>
       <Box sx={{ textAlign: "right" }}>
         <Typography sx={{ fontSize: 16, letterSpacing: "0.12em", lineHeight: 1.25 }}>{axis.right}</Typography>
@@ -91,19 +84,12 @@ function AxisRow({ axis }: { axis: Axis }) {
   );
 }
 
-function InsightCard({ children }: { children: string }) {
+function InsightCard({ title, description }: { title: string; description: string }) {
   return (
-    <Paper elevation={0} sx={{ mt: 1.5, px: 2, py: 1.5, borderRadius: 2, color: "#2D4C86", bgcolor: "#FFF", fontSize: 16, lineHeight: 1.9, letterSpacing: "0.04em" }}>
-      {children}
+    <Paper elevation={0} sx={{ mt: 1.5, px: 2, py: 1.5, borderRadius: 2, color: "#2D4C86", bgcolor: "#FFF" }}>
+      <Typography sx={{ fontWeight: 700, fontSize: 16, mb: 0.5 }}>{title}</Typography>
+      <Typography sx={{ fontSize: 16, lineHeight: 1.9, letterSpacing: "0.04em" }}>{description}</Typography>
     </Paper>
-  );
-}
-
-function ArrowIcon({ direction }: { direction: "left" | "right" }) {
-  return (
-    <SvgIcon fontSize="small">
-      <path d={direction === "left" ? "m14.5 5-7 7 7 7 1.5-1.5-5.5-5.5L16 6.5z" : "m9.5 5-1.5 1.5 5.5 5.5L8 17.5 9.5 19l7-7z"} />
-    </SvgIcon>
   );
 }
 
@@ -116,36 +102,49 @@ function ProfileIcon() {
 }
 
 export default function HomePage() {
-  const [resultIndex, setResultIndex] = useState(0);
-  const result = RESULTS[resultIndex];
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const showPrevious = () => setResultIndex((current) => (current - 1 + RESULTS.length) % RESULTS.length);
-  const showNext = () => setResultIndex((current) => (current + 1) % RESULTS.length);
+  useEffect(() => {
+    let cancelled = false;
+
+    void apiGet<DashboardResponse>("/dashboard")
+      .then((response) => {
+        if (!cancelled) setDashboard(response);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("分析結果を読み込めませんでした。時間をおいてもう一度お試しください。");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, []);
+
+  const profile = dashboard?.overallProfile;
 
   return (
     <Box component="main" sx={{ minHeight: "100dvh", pb: "72px", color: CHAT_COLORS.textOnDark, background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, #061C2B 46%, #075685 100%)` }}>
       <Box sx={{ width: "100%", maxWidth: 560, mx: "auto", px: 2, pt: 3 }}>
-      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-        <Typography component="h1" sx={{ mt: 0.5, fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 46, fontWeight: 400, letterSpacing: "-0.04em" }}>polaris</Typography>
-        <Constellation />
-        <Box aria-label="プロフィール画像の仮表示" sx={{ width: 76, height: 76, borderRadius: "50%", display: "grid", placeItems: "center", color: "#54708D", bgcolor: "#F5F5F5", border: "3px solid rgba(255,255,255,.7)" }}><ProfileIcon /></Box>
-      </Box>
-
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 7, mb: 3 }}>
-        <Typography component="h2" sx={{ fontSize: 28, fontWeight: 400, letterSpacing: "0.08em" }}>自己分析結果</Typography>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
-          <IconButton aria-label="前の分析結果" onClick={showPrevious} size="small" sx={{ color: CHAT_COLORS.textOnDark }}><ArrowIcon direction="left" /></IconButton>
-          <Typography aria-live="polite" sx={{ minWidth: 54, textAlign: "center", fontSize: 13, color: CHAT_COLORS.textOnDarkMuted }}>分析 {resultIndex + 1} / {RESULTS.length}</Typography>
-          <IconButton aria-label="次の分析結果" onClick={showNext} size="small" sx={{ color: CHAT_COLORS.textOnDark }}><ArrowIcon direction="right" /></IconButton>
+        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <Typography component="h1" sx={{ mt: 0.5, fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 46, fontWeight: 400, letterSpacing: "-0.04em" }}>polaris</Typography>
+          <Constellation />
+          <Box aria-label="プロフィール画像の仮表示" sx={{ width: 76, height: 76, borderRadius: "50%", display: "grid", placeItems: "center", color: "#54708D", bgcolor: "#F5F5F5", border: "3px solid rgba(255,255,255,.7)" }}><ProfileIcon /></Box>
         </Box>
-      </Box>
-      <Box sx={{ display: "grid", gap: 2.5 }}>{result.axes.map((axis) => <AxisRow key={axis.left} axis={axis} />)}</Box>
 
-      <Typography component="h2" sx={{ fontSize: 23, fontWeight: 400, letterSpacing: "0.1em" }}>あなたの強み</Typography>
-      <InsightCard>{result.strength}</InsightCard>
-
-      <Typography component="h2" sx={{ mt: 4, fontSize: 23, fontWeight: 400, letterSpacing: "0.1em" }}>あなたの弱み</Typography>
-      <InsightCard>{result.weakness}</InsightCard>
+        <Typography component="h2" sx={{ mt: 7, mb: 3, fontSize: 28, fontWeight: 400, letterSpacing: "0.08em" }}>自己分析結果</Typography>
+        {loading && <Typography sx={{ color: CHAT_COLORS.textOnDarkMuted }}>分析結果を読み込んでいます…</Typography>}
+        {loadError && <Typography sx={{ color: "#FFD1D1" }}>{loadError}</Typography>}
+        {!loading && !loadError && !profile && <Typography sx={{ color: CHAT_COLORS.textOnDarkMuted }}>自己分析チャットを完了すると、ここにあなたの分析結果が表示されます。</Typography>}
+        {profile && <>
+          <Box sx={{ display: "grid", gap: 2.5 }}>{buildAxes(profile).map((axis) => <AxisRow key={axis.left} axis={axis} />)}</Box>
+          <Typography component="h2" sx={{ mt: 4, fontSize: 23, fontWeight: 400, letterSpacing: "0.1em" }}>あなたの強み</Typography>
+          {profile.strengths.length > 0 ? profile.strengths.map((insight) => <InsightCard key={insight.title} title={insight.title} description={insight.description} />) : <Typography sx={{ mt: 1.5, color: CHAT_COLORS.textOnDarkMuted }}>強みは、分析結果が増えると表示されます。</Typography>}
+          <Typography component="h2" sx={{ mt: 4, fontSize: 23, fontWeight: 400, letterSpacing: "0.1em" }}>あなたの弱み</Typography>
+          {profile.weaknesses.length > 0 ? profile.weaknesses.map((insight) => <InsightCard key={insight.title} title={insight.title} description={insight.description} />) : <Typography sx={{ mt: 1.5, color: CHAT_COLORS.textOnDarkMuted }}>弱み・注意点は、分析結果が増えると表示されます。</Typography>}
+        </>}
       </Box>
     </Box>
   );
