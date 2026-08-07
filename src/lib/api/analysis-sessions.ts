@@ -1,4 +1,4 @@
- // docs/openapi.yaml の /api/v1/analysis-sessions 系エンドポイントに対応するAPIクライアント関数群。
+// docs/openapi.yaml の /api/v1/analysis-sessions 系エンドポイントに対応するAPIクライアント関数群。
 // HTTP呼び出しの詳細（パス組み立て、fetchラッパーの利用）をここに閉じ込め、
 // 呼び出し側（use-analysis-chat.ts）はドメイン用語の関数として使う。
 import { apiGet, apiPost } from "@/lib/api/client";
