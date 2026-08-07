@@ -27,7 +27,8 @@
     "test:experience-draft": "node --env-file=.env scripts/test-experience-draft.ts",
     "test:self-analysis-ai": "node --env-file=.env scripts/test-self-analysis-ai.ts",
     "test:career-ai": "node --env-file=.env scripts/test-career-ai.ts",
-    "self-analysis": "node --env-file=.env scripts/run-self-analysis.ts"
+    "self-analysis": "node --env-file=.env scripts/run-self-analysis.ts",
+    "seed:dashboard-demo": "node --env-file=.env scripts/seed-dashboard-demo.ts"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",
