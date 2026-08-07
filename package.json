@@ -18,7 +18,7 @@
     "test:es-extraction": "node scripts/test-es-extraction.ts",
     "test:ai-context": "node scripts/test-ai-context.ts",
     "test:local-ai": "node scripts/test-local-ai.ts",
-    "test:api-contracts": "node --env-file=.env scripts/test-api-contracts.ts",
+    "test:api-contracts": "node --env-file-if-exists=.env scripts/test-api-contracts.ts",
     "test:p1-e2e": "node --env-file=.env scripts/test-p1-e2e.ts",
     "test:ai-stability-unit": "node scripts/test-overall-output-safety.ts",
     "test:ai-stability-live": "node --env-file=.env scripts/test-overall-ai-stability.ts",
