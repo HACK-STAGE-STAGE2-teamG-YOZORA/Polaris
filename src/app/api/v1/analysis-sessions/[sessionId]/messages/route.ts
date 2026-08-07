@@ -114,6 +114,10 @@ export async function POST(request: Request, context: Context): Promise<Response
       });
       if (session.status === 'READY_TO_FINALIZE') {
         await tx.analysisSession.update({ where: { id: sessionId }, data: { status: 'ACTIVE' } });
+        await tx.axisAssessment.updateMany({
+          where: { sourceSessionId: sessionId, isStale: false },
+          data: { isStale: true },
+        });
       }
       return { userMessage, assistantMessage };
     });

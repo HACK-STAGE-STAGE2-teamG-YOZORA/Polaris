@@ -121,12 +121,41 @@ await withE2eServer(async ({ request }) => {
     assert(reviewed.userAssessment === "MATCHES", "本人評価が保存されませんでした。");
   }
 
+  const continued = expectStatus(await request(`/api/v1/analysis-sessions/${sessionId}/messages`, {
+    method: "POST",
+    body: {
+      content: "追加で、進捗が遅れたメンバーとは個別に相談し、担当範囲を組み替えて全員が納得できる形に調整しました。",
+      clientMessageId: randomUUID(),
+    },
+  }), 200, "continue after review");
+  assert(object(continued.userMessage, "continued.userMessage").role === "USER", "追加回答が保存されませんでした。");
+  expectProblem(
+    await request(`/api/v1/analysis-sessions/${sessionId}/finalize`, { method: "POST" }),
+    409,
+    "CONFLICT",
+    "finalize after additional answer",
+  );
+
+  const regenerated = expectStatus(await request(`/api/v1/analysis-sessions/${sessionId}/axis-assessments/generate`, {
+    method: "POST",
+  }), 200, "regenerate axes after additional answer");
+  const regeneratedAssessments = items(regenerated.items, "regenerated axis assessments");
+  assert(regeneratedAssessments.length === 4, "再生成後の4軸が揃っていません。");
+  for (const assessment of regeneratedAssessments) {
+    const assessmentId = text(assessment.id, "regenerated axisAssessment.id");
+    const reviewed = expectStatus(await request(`/api/v1/axis-assessments/${assessmentId}`, {
+      method: "PATCH",
+      body: { assessment: "MATCHES", note: "追加回答反映後に再確認済み" },
+    }), 200, `review regenerated ${String(assessment.axis)}`);
+    assert(reviewed.userAssessment === "MATCHES", "再生成後の本人評価が保存されませんでした。");
+  }
+
   const report = expectStatus(await request(`/api/v1/analysis-sessions/${sessionId}/finalize`, {
     method: "POST",
   }), 200, "finalize session");
   const reportId = text(report.id, "report.id");
   assert(report.sourceSessionId === sessionId, "レポートのsourceSessionIdが不正です。");
-  assert(report.userMessageCount === 1, "USERメッセージ件数が不正です。");
+  assert(report.userMessageCount === 2, "追加回答を含むUSERメッセージ件数が不正です。");
   assert(report.confirmedExperienceCount === 1, "確認済み経験件数が不正です。");
   assert(items(report.axes, "report.axes").length === 4, "レポートに4軸がありません。");
   expectProblem(await request(`/api/v1/analysis-sessions/${sessionId}/finalize`, { method: "POST" }), 409, "CONFLICT", "duplicate finalize");

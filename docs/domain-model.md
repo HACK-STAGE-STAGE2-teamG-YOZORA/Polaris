@@ -91,7 +91,7 @@ erDiagram
 stateDiagram-v2
     [*] --> ACTIVE
     ACTIVE --> READY_TO_FINALIZE: USER回答1件以上・4軸分析済み・4軸すべて本人評価済み
-    READY_TO_FINALIZE --> ACTIVE: 追加質問を続ける
+    READY_TO_FINALIZE --> ACTIVE: 追加質問を続ける（既存4軸をSTALE化）
     ACTIVE --> ABANDONED: 進行中に「初めから」を選択
     READY_TO_FINALIZE --> ABANDONED: 進行中に「初めから」を選択
     READY_TO_FINALIZE --> COMPLETED: 終了確認後のfinalize成功
@@ -100,6 +100,8 @@ stateDiagram-v2
 ```
 
 同一ユーザーについて、`ACTIVE`または`READY_TO_FINALIZE`は最大1件とする。P0の単一ユーザーでもこの制約を守る。
+
+`READY_TO_FINALIZE`から会話を再開した場合、それまでの4軸分析は追加回答を含まないため`isStale=true`にする。finalizeは`READY_TO_FINALIZE`からだけ許可し、再開後は4軸の再生成と全軸の本人評価をやり直す。
 
 「続きから」は進行中セッションとメッセージを取得する。「初めから」は進行中セッションを`ABANDONED`にし、新しいセッションを同一トランザクションで作る。完了済みレポートと確認済み経験は削除しないが、過去経験を新セッション固有の4軸分析へは含めない。過去分はホーム総合プロフィールとES生成では引き続き使用する。
 
