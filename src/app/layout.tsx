@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
-import { Providers } from "./providers";
+
+import { BottomNav } from "@/app/components/BottomNav";
+import { ThemeRegistry } from "@/app/theme-registry";
 
 export const metadata: Metadata = {
   title: "Polaris",
@@ -11,7 +13,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ja">
-      <body><Providers>{children}</Providers></body>
+      <body>
+        <ThemeRegistry>
+          {children}
+          <BottomNav />
+        </ThemeRegistry>
+      </body>
     </html>
   );
 }
