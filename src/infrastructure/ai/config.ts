@@ -26,6 +26,14 @@ function readPositiveInteger(name: string, fallback: number): number {
   return value;
 }
 
+function readPositiveNumber(name: string, fallback: number): number {
+  const value = readNumber(name, fallback);
+  if (value <= 0) {
+    throw new Error(`${name}には0より大きい数値を設定してください。`);
+  }
+  return value;
+}
+
 export function loadPolarisAiConfig(): PolarisAiConfig {
   const modelId = process.env.LM_STUDIO_MODEL_ID;
 
@@ -52,5 +60,8 @@ export function loadPolarisAiConfig(): PolarisAiConfig {
       0,
       Math.trunc(readNumber("AI_JSON_REPAIR_MAX_ATTEMPTS", 1)),
     ),
+    contextLength: readPositiveInteger('LM_STUDIO_CONTEXT_LENGTH', 16_384),
+    schemaReserveTokens: readPositiveInteger('AI_SCHEMA_RESERVE_TOKENS', 1_500),
+    estimatedCharsPerToken: readPositiveNumber('AI_ESTIMATED_CHARS_PER_TOKEN', 2),
   };
 }

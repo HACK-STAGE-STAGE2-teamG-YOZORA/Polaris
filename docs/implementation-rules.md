@@ -57,6 +57,8 @@ export function countEsCharacters(text: string): number {
 6. 決定的な業務ルールをTypeScriptで再計算する。
 7. 全検査成功後だけDBへ保存する。
 
+AI入力は`LM_STUDIO_CONTEXT_LENGTH`から出力トークンとJSON Schema分を予約し、入力上限を超えた状態でLM Studioを呼ばない。会話は最新ターン、ESはユーザー指定経験・設問との関連度・新しいレポートを優先する。候補から外した履歴をDBから削除しない。企業の長文原文は段落境界を優先して分割し、抽出結果を重複排除して統合する。
+
 4軸分析では次も検証する。
 
 - 軸とpoleの組み合わせが有効である。
