@@ -6,9 +6,24 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "prisma:generate": "prisma generate",
+    "db:push": "prisma db push",
     "test:lm-studio": "node --env-file=.env scripts/test-lm-studio.ts",
     "test:structured-output": "node --env-file=.env scripts/test-structured-output.ts",
+    "test:contracts": "python scripts/validate_contracts.py",
+    "test:ai-schema": "node scripts/test-ai-schema.ts",
+    "test:p0-e2e": "node --env-file=.env scripts/test-p0-e2e.ts",
+    "test:ai-errors": "node --env-file=.env scripts/test-ai-errors.ts",
+    "test:p1-units": "node scripts/test-p1-units.ts",
+    "test:p1-e2e": "node --env-file=.env scripts/test-p1-e2e.ts",
+    "test:ai-stability-unit": "node scripts/test-overall-output-safety.ts",
+    "test:ai-stability-live": "node --env-file=.env scripts/test-overall-ai-stability.ts",
+    "test:ci": "npm run typecheck -- --incremental false && npm run typecheck:scripts && npm run test:contracts && npm run test:ai-schema && npm run test:ai-stability-unit && npm run test:p1-units",
+    "test:ai-stable": "npm run typecheck && npm run typecheck:scripts && npm run test:contracts && npm run test:ai-schema && npm run test:ai-stability-unit && npm run test:ai-stability-live",
+    "test:ai-p1": "npm run typecheck && npm run typecheck:scripts && npm run test:contracts && npm run test:ai-schema && npm run test:p1-units && npm run test:p1-e2e",
+    "test:ai-p0": "npm run typecheck && npm run typecheck:scripts && npm run test:contracts && npm run test:ai-schema && npm run test:p0-e2e && npm run test:ai-errors",
     "typecheck": "tsc --noEmit",
+    "typecheck:scripts": "tsc -p scripts/tsconfig.json --noEmit --incremental false",
     "test:experience-draft": "node --env-file=.env scripts/test-experience-draft.ts",
     "test:self-analysis-ai": "node --env-file=.env scripts/test-self-analysis-ai.ts",
     "test:career-ai": "node --env-file=.env scripts/test-career-ai.ts",
@@ -21,8 +36,12 @@
     "@hookform/resolvers": "^5.7.1",
     "@lmstudio/sdk": "^1.5.0",
     "@mui/material": "^9.2.0",
+    "@prisma/adapter-better-sqlite3": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
+    "better-sqlite3": "^13.0.3",
+    "cheerio": "^1.1.2",
     "next": "^16.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -33,6 +52,12 @@
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "prisma": "^7.9.1",
     "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "@prisma/adapter-better-sqlite3": {
+      "better-sqlite3": "$better-sqlite3"
+    }
   }
 }

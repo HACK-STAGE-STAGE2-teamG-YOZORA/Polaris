@@ -8,8 +8,10 @@ AI AdapterはLM Studio固有処理を隠し、アプリケーション層へ型�
 interface PolarisAiGateway {
   createChatTurn(input: ChatTurnInput): Promise<ChatTurnOutput>;
   extractExperience(input: ExperienceDraftInput): Promise<ExperienceDraftOutput>;
-  generateHypotheses(input: HypothesesInput): Promise<HypothesesOutput>;
-  writeCareerReport(input: CareerReportInput): Promise<CareerReportOutput>;
+  verifyExperienceGrounding(input: ExperienceGroundingInput): Promise<ExperienceGroundingOutput>;
+  generateAxisAssessments(input: AxisAssessmentsInput): Promise<AxisAssessmentsOutput>;
+  writeSelfAnalysisReport(input: SelfAnalysisReportInput): Promise<SelfAnalysisReportOutput>;
+  generateOverallSelfAnalysis(input: OverallSelfAnalysisInput): Promise<OverallSelfAnalysisOutput>;
   extractCompanyFacts(input: CompanyFactsInput): Promise<CompanyFactsOutput>;
   recommendCompanies(input: CompanyRecommendationsInput): Promise<CompanyRecommendationsOutput>;
   analyzeEs(input: EsAnalysisInput): Promise<EsAnalysisOutput>;
@@ -26,10 +28,36 @@ interface PolarisAiGateway {
 ```typescript
 type AiTaskEnvelope<T> = {
   taskId: string;             // ログ相関用UUID
-  schemaVersion: "0.1.0";
+  schemaVersion: "0.3.0";
   locale: "ja-JP";
   task: T;
 };
+```
+
+4軸の共通型:
+
+```typescript
+type SelfAnalysisAxis =
+  | "ENERGY_SOURCE"
+  | "ACTION_STYLE"
+  | "SATISFACTION_SOURCE"
+  | "PREFERRED_ENVIRONMENT";
+
+type AxisPole =
+  | "LEFT"
+  | "RIGHT"
+  | "BOTH"
+  | "CONTEXT_DEPENDENT"
+  | "UNKNOWN";
+
+type AxisPosition =
+  | "LEFT"
+  | "LEANS_LEFT"
+  | "BALANCED_OR_BOTH"
+  | "LEANS_RIGHT"
+  | "RIGHT"
+  | "CONTEXT_DEPENDENT"
+  | "INSUFFICIENT_EVIDENCE";
 ```
 
 システム指示の共通ルール:
@@ -49,9 +77,9 @@ type AiTaskEnvelope<T> = {
 type ChatTurnInput = {
   session: {
     id: string;
-    focusAreas: HypothesisCategory[];
+    targetAxes: SelfAnalysisAxis[];
     coveredExperienceTypes: ExperienceType[];
-    missingAreas: HypothesisCategory[];
+    missingAxes: SelfAnalysisAxis[];
   };
   messages: Array<{
     id: string;
@@ -70,15 +98,19 @@ type ChatTurnInput = {
 
 - 直前回答を短く受け止める。
 - 具体化に最も必要な質問を一つだけ返す。
-- CAN／WANT／ENERGY／CONTEXT候補と引用を抽出する。
+- 4軸の片側・両方・状況差に関する候補と引用を抽出する。
 - 一つの経験カードを作れるだけの情報が集まったか示す。
+- 「終わりたい」等を終了候補として検出した場合は`completionIntent=SUGGESTED`を返す。
 
 ### バックエンドの再検証
 
 - `reply`に疑問文が複数ないことを、完全保証ではなく警告ログとして確認。
 - `messageId`が入力に存在すること。
 - `quote`が該当ユーザーメッセージ内に存在すること。
-- `missingAreas`と進捗は保存済み根拠から再計算すること。
+- `axis`と`pole`の組み合わせが有効であること。
+- `missingAxes`と進捗は保存済み根拠から再計算すること。
+- `completionIntent=SUGGESTED`だけでセッションを完了しないこと。
+- 検証済み`evidenceCandidates`はASSISTANTメッセージと一緒に未確認候補として保存し、経験が本人確認されるまで正式根拠へ使わないこと。
 
 ## 4. 経験カード抽出
 
@@ -110,67 +142,121 @@ type ExperienceDraftInput = {
 
 - 入力`requestedType`と出力`type`が違う場合は出力を採用しない。
 - 引用IDと引用本文の一致。
+- `goal`、`options`、`decision`、`decisionReason`は`experience-grounding-output.schema.json`を使う別の推測検査に通し、根拠なしと判定された値を正式値として残さない。
 - 経験は常に`DRAFT`として保存。
 - `status`、`id`、日時をAIに作らせず、サーバーで付与。
 
-## 5. キャリア仮説生成
+推測検査には抽出案と元のユーザー発言だけを渡す。`grounded=false`、存在しない`messageId`、一致しない`quote`の項目は空へ戻し、`missingFields`として本人へ確認する。抽出と推測検査を同じ生成結果の自己申告だけで済ませない。
+
+本人が経験を`CONFIRMED`にした時点で、その経験の引用元メッセージに保存された軸根拠候補を再検証し、成功したものだけを`AxisEvidenceItem`へ昇格する。候補がない軸を反対側の根拠として補完しない。
+
+## 5. 4軸分析生成
 
 ### 入力
 
 ```typescript
-type HypothesesInput = {
+type AxisAssessmentsInput = {
+  sourceSessionId: string;
+  userMessageCount: number;
   confirmedExperiences: Experience[];
   evidenceItems: Array<{
     id: string;
     experienceId: string;
-    category: HypothesisCategory;
+    axis: SelfAnalysisAxis;
+    pole: AxisPole;
     statement: string;
     supportType: "SUPPORT" | "COUNTER" | "UNKNOWN";
     quote: string;
     interpretation: string;
   }>;
-  previousHypotheses: CareerHypothesis[];
+  previousAssessments: AxisAssessment[];
 };
 ```
 
 ### 出力
 
-`contracts/ai/hypotheses-output.schema.json`
+`contracts/ai/hypotheses-output.schema.json`。ファイル名は既存互換のため維持するが、内容は4軸分析出力を定義する。
 
 ### AIの責任
 
-- CANは動詞を含む再現可能な行動として書く。
+- 4軸それぞれについて候補位置、コメント、左右・両方・状況差の根拠を返す。
+- 対象セッション内の経験・根拠だけを使い、過去セッションの結果を混ぜない。
+- 片側の根拠がないことを反対側の根拠として扱わない。
 - 同じ出来事内の複数引用を「独立経験が複数」と解釈しない。
-- 反対根拠を積極的に探す。
-- 力を発揮した条件と、負荷条件を分ける。
+- `BALANCED_OR_BOTH`は左右両方、`CONTEXT_DEPENDENT`は状況差の根拠を必要とする。
+- 根拠が足りない軸は`INSUFFICIENT_EVIDENCE`候補とする。
+- 軸の左右に優劣を付けず、能力・適性・性格タイプへ言い換えない。
 
 ### バックエンドの再検証
 
 - 全evidence IDが入力集合に存在すること。
-- categoryが根拠と整合すること。
-- `CONFIRMED_PATTERN`等のstatusはAI出力に含めず、ドメイン規則で計算。
-- 同一category・同義statementの重複を正規化してupsert。
+- axisとpoleが根拠と整合すること。
+- AI候補positionを根拠集合と照合し、最終positionをドメイン規則で決定すること。
+- `CONFIRMED_PATTERN`等のstatusはAIに最終決定させず、ドメイン規則で計算すること。
+- 4軸が重複せず、各軸最大1件であること。
+- USER回答が1件以上なら、確認済み経験が0件でも4軸を返せること。根拠がない軸は`INSUFFICIENT_EVIDENCE`にすること。
 
-## 6. キャリアレポート
+## 6. 自己分析レポート
 
 ### 入力
 
-ユーザー評価を含むキャリア仮説だけを渡す。`DOES_NOT_MATCH`は肯定的な要約に使用せず、「まだ分からない」または追加検証へ回す。
+ユーザー評価を含む4軸分析だけを渡す。`DOES_NOT_MATCH`は肯定的な要約に使用せず、「まだ分からない」または追加検証へ回す。
 
 ```typescript
-type CareerReportInput = {
-  hypotheses: CareerHypothesis[];
+type SelfAnalysisReportInput = {
+  sourceSessionId: string;
+  userMessageCount: number;
+  axisAssessments: AxisAssessment[];
   confirmedExperiences: Experience[];
 };
 ```
 
 ### 出力
 
-`contracts/ai/career-report-output.schema.json`
+`contracts/ai/career-report-output.schema.json`。ファイル名は既存互換のため維持する。
 
-AIは要約と条件の言語化だけを行う。確定CAN一覧、仮説一覧、WANT一覧はDBの仮説からバックエンドが組み立てる。
+AIは全体要約、4軸コメント、Must／Prefer／Avoid／Verify、次の実験の言語化だけを行う。軸位置・status・本人評価・根拠参照はDBの4軸分析からバックエンドがスナップショットを組み立てる。一つの`sourceSessionId`へ保存できるレポートは1件だけとする。
 
-## 7. 企業情報抽出
+## 7. ホーム総合プロフィール
+
+### 入力
+
+```typescript
+type OverallSelfAnalysisInput = {
+  completedSessionReports: SelfAnalysisReport[];
+  confirmedExperiences: Experience[];
+  evidenceItems: AxisEvidenceItem[];
+  sourceUserQuotes: Array<{
+    messageId: string;
+    sessionId: string;
+    quote: string;
+  }>;
+};
+```
+
+### 出力
+
+`contracts/ai/overall-self-analysis-output.schema.json`
+
+### AIの責任
+
+- 全セッションを候補として、4軸の総合コメント、強み、弱み・注意点を言語化する。
+- 各記述へ参照したセッションレポートIDと正式根拠IDを付ける。
+- 各セッションの軸位置を数値化して平均しない。
+- 一つのセッションの発言量だけで全体傾向を決めない。
+- 根拠が競合する場合は、`BALANCED_OR_BOTH`または`CONTEXT_DEPENDENT`候補と条件差を返す。
+- 強み・弱みを能力や人格の断定にせず、観察された行動と環境条件で説明する。
+
+### バックエンドの再検証
+
+- 入力が全`COMPLETED`セッションのレポートと全`CONFIRMED`経験を含むこと。
+- 軸、レポートID、経験ID、根拠ID、引用が入力集合に存在すること。
+- 最終positionを全正式根拠からドメイン規則で再計算すること。
+- `completedSessionCount`、`userMessageCount`、`confirmedExperienceCount`をDBから計数すること。
+- 完了セッション2件未満または確認済み経験3件未満なら`isDataSparse=true`にすること。
+- AI出力が不正な場合は以前の総合プロフィールを上書きせず`STALE`にすること。
+
+## 8. 企業情報抽出
 
 ### 入力
 
@@ -197,7 +283,7 @@ type CompanyFactsInput = {
 - `OFFICIAL`はユーザー選択だけで自動確定せず、P1ではURLドメイン確認結果も表示する。
 - 一般知識で補完した企業情報を保存しない。
 
-## 8. 根拠付き企業提案
+## 9. 根拠付き企業提案
 
 ### 入力
 
@@ -205,7 +291,7 @@ type CompanyFactsInput = {
 
 ```typescript
 type CompanyRecommendationsInput = {
-  careerReport: CareerReport;
+  selfAnalysisReport: SelfAnalysisReport;
   confirmedExperiences: Experience[];
   candidates: Array<{
     companyId: string;
@@ -251,7 +337,7 @@ type CompanyRecommendationsInput = {
 - `rank`、結果ID、日時はサーバーで付与する。
 - 同一企業の重複と、同一枠への偏りを検査する。
 
-## 9. ES検査
+## 10. ES検査
 
 ### 入力
 
@@ -260,7 +346,7 @@ type EsAnalysisInput = {
   question: string;
   characterLimit: number;
   text: string;
-  allowedExperiences: Array<{
+  allConfirmedExperiences: Array<{
     id: string;
     confirmedFacts: string[];
     sourceQuotes: string[];
@@ -272,7 +358,9 @@ type EsAnalysisInput = {
     evidenceQuote: string;
     trustLevel: SourceTrustLevel;
   }>;
-  confirmedHypothesesForVoice: CareerHypothesis[];
+  allSessionReports: SelfAnalysisReport[];
+  overallSelfAnalysisProfile?: OverallSelfAnalysisProfile;
+  preferredExperienceIds: string[];
 };
 ```
 
@@ -285,6 +373,7 @@ type EsAnalysisInput = {
 - 文を、照合可能な最小主張へ分ける。
 - 対応しそうな許可根拠IDを提示する。
 - 設問へ答えているか、抽象・重複・声の逸脱を示す。
+- 全経験・全セッション結果を候補として確認し、設問と文字数に関連する経験を選ぶ。
 
 ### バックエンドの再検証
 
@@ -292,8 +381,13 @@ type EsAnalysisInput = {
 - 根拠ID、根拠種別、引用を検証。
 - `suggestedStatus`は最終値ではなく、決定ルールで再判定。
 - 未検証企業出典だけの主張を`VERIFIED`にしない。
+- AIが返した`sentence`または`text`をES原文へ一意に対応づけられる場合だけ、Unicodeコードポイント基準の`startOffset`／`endOffset`を付与する。
+- 一意に対応づけられない場合は範囲を省略し、対象文とコメントだけを保存する。
+- 総合点や適性点を後付けで計算しない。
+- `preferredExperienceIds`は優先ヒントであり、それ以外の確認済み経験を候補集合から除外しない。
+- セッションレポートと総合プロフィールは表現方針にのみ使い、数字・役割・成果の事実根拠にしない。
 
-## 10. ES推敲
+## 11. ES完成版生成
 
 ### 入力
 
@@ -320,13 +414,17 @@ type EsRevisionInput = EsAnalysisInput & {
 
 ### バックエンドの再検証
 
-- `revisedText`を新しいESとして再分析する。
+- `revisedText`は設問への回答、文字数、本人らしさを満たす提出可能品質の完成版ES案として生成する。
+- `revisedText`を新しいESとして独立して再分析する。
 - 原文になかった主張は、許可根拠がある場合だけ残す。
+- `usedExperienceIds`と`usedSessionReportIds`が全履歴として渡した候補集合に存在すること。
 - 新しい`NEEDS_CONFIRMATION`または`CONTRADICTED`があればUIへ警告し、安全完了扱いにしない。
 - 文字数を再計算する。
 - 変更ID、採否、日時はサーバーで付与する。
+- 再検査結果を完成版本文の下へ「根拠状態」「問題箇所」「改善理由」のAIコメントとして表示できる形へ変換する。
+- 設問回答、文字数、全主張の根拠を満たす場合だけ`READY_TO_SUBMIT`とし、それ以外は`NEEDS_REVIEW`とする。
 
-## 11. エラー変換
+## 12. エラー変換
 
 | AI Adapter内の失敗 | APIコード | retryable |
 |---|---|---:|

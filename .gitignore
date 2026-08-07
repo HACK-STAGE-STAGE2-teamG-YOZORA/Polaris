@@ -13,6 +13,7 @@ src/generated/prisma/
 
 # Local data and uploaded content
 data/
+.tmp/
 *.db
 *.db-shm
 *.db-wal

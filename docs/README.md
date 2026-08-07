@@ -44,6 +44,24 @@ npx @redocly/cli lint docs/openapi.yaml
 
 `redocly.yaml`では、localhost専用MVPと、4xxを持たない読み取り専用エンドポイントに関する2ルールだけを理由付きで除外している。
 
+## 現在の検証コマンド
+
+次のコマンドは現在のリポジトリで実行できる。`test:ai-p0`はLM Studioで`.env`と同じモデルをロードしてから実行する。
+
+```powershell
+npm.cmd run typecheck
+npm.cmd run typecheck:scripts
+npm.cmd run test:contracts
+npm.cmd run test:ai-schema
+npm.cmd run test:ai-p0
+```
+
+- `test:contracts`: AI JSON Schema、OpenAPI内部参照、SQLite DDLを検証する。
+- `test:ai-schema`: LM Studio向けに簡略化した生成Schemaが、出力フィールド名を削除していないことを検証する。
+- `test:ai-p0`: 一時SQLite DBと一時Next.jsサーバーを使い、自己分析からES再検査までとAI異常系をHTTP経由で検証する。既存の開発DBは変更しない。
+
+Redocly CLIによるlintは追加の任意検証であり、現在の`package.json`には依存関係として固定していない。
+
 ## APIバージョニング
 
 - ベースパスは`/api/v1`。

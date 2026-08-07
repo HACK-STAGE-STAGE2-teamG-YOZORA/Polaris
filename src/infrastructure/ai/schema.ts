@@ -107,7 +107,18 @@ function simplifyForLmStudio(value: unknown): void {
     delete object[keyword];
   }
 
-  Object.values(object).forEach(simplifyForLmStudio);
+  for (const [key, child] of Object.entries(object)) {
+    if (
+      ["properties", "$defs", "definitions", "patternProperties", "dependentSchemas"].includes(key) &&
+      child &&
+      typeof child === "object" &&
+      !Array.isArray(child)
+    ) {
+      Object.values(child).forEach(simplifyForLmStudio);
+    } else {
+      simplifyForLmStudio(child);
+    }
+  }
 }
 
 async function buildSchemaBundle<T>(
