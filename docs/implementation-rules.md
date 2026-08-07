@@ -159,7 +159,8 @@ URL取り込みを実装する場合は、文字列のホスト名検査だけ�
 
 ### 契約テスト
 
-- 主要APIレスポンスが`openapi.yaml`へ適合する。
+- OpenAPI YAMLを重複キーも含めて完全にparseし、P0 operationとRoute実装の対応を検査する。
+- 決定的API E2EとLM Studio使用E2Eの全レスポンスを、status・Content-Type・JSON Schemaまで`openapi.yaml`へ照合する。
 - AI代表出力が`contracts/ai`へ適合する。
 - すべてのエラーが`ErrorResponse`へ適合する。
 - ES文字抽出レスポンスが`EsTextExtraction`へ適合し、`requiresReview=true`である。
@@ -176,7 +177,7 @@ URL取り込みを実装する場合は、文字列のホスト名検査だけ�
 8. 完成版の下に根拠状態・問題箇所・改善理由を表示
 9. 再検査で新規未確認事実0件かつ`READY_TO_SUBMIT`
 
-現在の`npm.cmd run test:ai-p0`は、一時DBを使って1、2、6〜8、およびAIの504／502／503変換と失敗時の非保存を自動検証する。3〜5、9はデモfixtureを増やす際の追加E2E項目として残す。
+`npm.cmd run test:ci`はLM StudioなしでOpenAPI/Route対応、主要CRUD、PNG/PDF/OCR、入力上限、loopback限定を検証する。`npm.cmd run test:ai-p0`は一時DBと実際のLM Studioを使い、1〜4、6〜9、追加回答後の再分析、企業公式情報付きES、およびAIの504／502／503変換と失敗時の非保存を検証する。ファイル抽出後の本人確認操作を含む画面通し確認はフロント統合後の受け入れテストで行う。
 
 ## 10. 完了の定義
 

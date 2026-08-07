@@ -35,7 +35,7 @@ flowchart LR
 | 企業資料PDF/DOCX | PDF.js / Mammoth | P2。ES入力とは別機能 |
 | グラフ | Recharts | 4軸の位置と根拠状態の表示に利用可。数値能力グラフにはしない |
 
-Pythonは使用しない。AIモデル名をコードへ直書きせず、環境変数で切り替える。
+本番アプリケーションruntimeではPythonを使用しない。契約検査だけPython 3を使用し、Next.js、Prisma、AI、OCRの実行はNode.jsへ統一する。AIモデル名をコードへ直書きせず、環境変数で切り替える。
 PrismaはNode.js runtimeで使用し、Edge runtimeへ配置しない。
 
 ## 3. コンポーネント境界

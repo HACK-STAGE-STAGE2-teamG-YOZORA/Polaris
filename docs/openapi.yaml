@@ -137,6 +137,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisSessionPage'
+        '422':
+          $ref: '#/components/responses/ValidationError'
     post:
       tags: [Self Analysis]
       operationId: createAnalysisSession

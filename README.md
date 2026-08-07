@@ -37,7 +37,7 @@ npm.cmd run test:ci
 npm.cmd run build
 ```
 
-`test:ci`は、型検査、OpenAPI／Prisma／実装の契約検査、AI出力スキーマ検査、AI安定化ユニットテスト、P1ユニットテストをまとめたLM Studio不要の検査です。実モデルを使うE2E・エラー・安定性テストはCIに含めず、LM Studioを起動した開発PCで実行します。
+`test:ci`は、型検査、OpenAPI／Prisma／Route／主要APIレスポンスの契約検査、PNG/PDF/OCR、AI入力上限、loopback限定、AI出力スキーマ、AI安定化、P1ユニットテストをまとめたLM Studio不要の検査です。実モデルを使うE2E・エラー・安定性テストはCIに含めず、LM Studioを起動した開発PCで実行します。
 
 ## LM Studioで試す
 
@@ -72,8 +72,9 @@ npm.cmd run test:ai-p0
 
 `test:ai-p0`は、一時SQLite DBと一時ポートのNext.jsサーバーを自動作成し、次をHTTP経由で検証して終了時に削除します。
 
-- 自己分析チャット、冪等再送、経験抽出・確認、4軸生成・本人評価、レポート確定、総合分析
-- ES原文検査、完成版生成、推敲後の独立再検査
+- 自己分析チャット、冪等再送、経験抽出・確認、追加回答後の再分析、4軸生成・本人評価、レポート確定、複数セッション総合分析
+- 経験0件の根拠不足結果、ADR-032のデータ不足／十分状態
+- 企業公式情報付きES原文検査、完成版生成、推敲後の独立再検査、提出可能状態
 - `AI_TIMEOUT`、`AI_INVALID_OUTPUT`、`AI_UNAVAILABLE`と、失敗時に部分データを保存しないこと
 
 AI Adapterは[`src/infrastructure/ai`](./src/infrastructure/ai/)にあり、Web実装時はRoute Handlerから直接プロンプトを呼ばず、`LmStudioPolarisAiGateway`をApplication Service経由で利用します。

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { internalError, jsonBody, problem } from '@/server/api';
+import { countCodePoints, internalError, jsonBody, problem } from '@/server/api';
 import { esDocumentInclude, formatEsDocument, validatePreferredExperiences } from '@/server/es';
 
 type Context = { params: Promise<{ esDocumentId: string }> };
@@ -25,10 +25,10 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
     }
     const exists = await prisma.esDocument.findUnique({ where: { id: esDocumentId }, select: { id: true } });
     if (!exists) return problem(404, 'NOT_FOUND', '指定されたES文書がありません。');
-    if (body.question !== undefined && (typeof body.question !== 'string' || !body.question.trim() || body.question.length > 5000)) return problem(422, 'VALIDATION_ERROR', 'question が不正です。');
-    if (body.originalText !== undefined && (typeof body.originalText !== 'string' || !body.originalText.trim() || body.originalText.length > 20_000)) return problem(422, 'VALIDATION_ERROR', 'originalText が不正です。');
+    if (body.question !== undefined && (typeof body.question !== 'string' || !body.question.trim() || countCodePoints(body.question) > 5000)) return problem(422, 'VALIDATION_ERROR', 'question が不正です。');
+    if (body.originalText !== undefined && (typeof body.originalText !== 'string' || !body.originalText.trim() || countCodePoints(body.originalText) > 20_000)) return problem(422, 'VALIDATION_ERROR', 'originalText が不正です。');
     if (body.characterLimit !== undefined && (!Number.isInteger(body.characterLimit) || Number(body.characterLimit) < 1 || Number(body.characterLimit) > 10_000)) return problem(422, 'VALIDATION_ERROR', 'characterLimit が不正です。');
-    if (body.targetRole !== undefined && body.targetRole !== null && (typeof body.targetRole !== 'string' || body.targetRole.length > 200)) return problem(422, 'VALIDATION_ERROR', 'targetRole が不正です。');
+    if (body.targetRole !== undefined && body.targetRole !== null && (typeof body.targetRole !== 'string' || countCodePoints(body.targetRole) > 200)) return problem(422, 'VALIDATION_ERROR', 'targetRole が不正です。');
     if (body.emphasis !== undefined && (!Array.isArray(body.emphasis) || !body.emphasis.every((item) => typeof item === 'string'))) return problem(422, 'VALIDATION_ERROR', 'emphasis が不正です。');
     if (typeof body.companyId === 'string') {
       const company = await prisma.company.findUnique({ where: { id: body.companyId }, select: { id: true } });
