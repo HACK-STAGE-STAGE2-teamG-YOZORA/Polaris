@@ -11,8 +11,8 @@ export async function POST(_request: Request, context: Context): Promise<Respons
     const { sessionId } = await context.params;
     const session = await prisma.analysisSession.findUnique({ where: { id: sessionId } });
     if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
-    if (session.status === 'COMPLETED' || session.status === 'ABANDONED') {
-      return problem(409, 'CONFLICT', '完了または破棄されたセッションは確定できません。');
+    if (session.status !== 'READY_TO_FINALIZE') {
+      return problem(409, 'CONFLICT', '4軸を生成し、すべて本人評価してから確定してください。');
     }
     const [userMessageCount, assessments, experiences, existingReport] = await Promise.all([
       prisma.message.count({ where: { sessionId, role: 'USER' } }),
