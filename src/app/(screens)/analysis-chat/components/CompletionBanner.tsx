@@ -1,8 +1,8 @@
-import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 
+import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { CompletionIntent } from "@/types/analysis-session";
 
 interface CompletionBannerProps {
@@ -21,23 +21,43 @@ export function CompletionBanner({ completionIntent, canGenerateResult }: Comple
   }
 
   return (
-    <Alert severity="info">
-      <Typography variant="body2">
+    <Box
+      sx={{
+        borderRadius: 3,
+        border: `1px solid ${CHAT_COLORS.orange}`,
+        bgcolor: CHAT_COLORS.orangeMuted,
+        px: 2,
+        py: 1.5,
+      }}
+    >
+      <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDark }}>
         {completionIntent === "SUGGESTED"
           ? "ここまでの内容で分析結果を作りますか？"
           : "ここまでの内容でも分析結果を作成できます。"}
       </Typography>
       {canGenerateResult && (
         <Box sx={{ mt: 1 }}>
-          <Button variant="outlined" size="small" disabled>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled
+            sx={{
+              color: CHAT_COLORS.orange,
+              borderColor: CHAT_COLORS.orange,
+              "&.Mui-disabled": { color: CHAT_COLORS.textOnDarkMuted, borderColor: CHAT_COLORS.navyBorder },
+            }}
+          >
             この内容で結果を見る
           </Button>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+          <Typography
+            variant="caption"
+            sx={{ display: "block", mt: 0.5, color: CHAT_COLORS.textOnDarkMuted }}
+          >
             {/* TODO: 終了確認画面の実装後、ここからaxis-assessments/generate → finalizeへ遷移する */}
             終了確認画面は準備中です
           </Typography>
         </Box>
       )}
-    </Alert>
+    </Box>
   );
 }

@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import CircularProgress from "@mui/material/CircularProgress";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import FormGroup from "@mui/material/FormGroup";
 import FormHelperText from "@mui/material/FormHelperText";
-import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { SelfAnalysisAxis } from "@/types/analysis-session";
 
 // docs/openapi.yaml SelfAnalysisAxis の4値。括弧内はスキーマ説明にある両極の呼び名
@@ -45,9 +46,18 @@ export function SessionStartForm({ submitting, fieldErrors, onSubmit }: SessionS
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
+    <Box
+      sx={{
+        borderRadius: 3,
+        border: `1px solid ${CHAT_COLORS.navyBorder}`,
+        bgcolor: CHAT_COLORS.navySurface,
+        p: 2.5,
+      }}
+    >
       <Stack spacing={2}>
-        <Typography variant="subtitle1">セッションを開始する</Typography>
+        <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
+          セッションを開始する
+        </Typography>
         <TextField
           label="タイトル（任意）"
           placeholder="自己分析"
@@ -57,6 +67,7 @@ export function SessionStartForm({ submitting, fieldErrors, onSubmit }: SessionS
           helperText={fieldErrors.title}
           fullWidth
           disabled={submitting}
+          sx={inputSx}
         />
         <FormGroup>
           {TARGET_AXIS_OPTIONS.map((option) => (
@@ -67,9 +78,14 @@ export function SessionStartForm({ submitting, fieldErrors, onSubmit }: SessionS
                   checked={targetAxes.includes(option.value)}
                   onChange={() => toggleTargetAxis(option.value)}
                   disabled={submitting}
+                  sx={{
+                    color: CHAT_COLORS.textOnDarkMuted,
+                    "&.Mui-checked": { color: CHAT_COLORS.orange },
+                  }}
                 />
               }
               label={option.label}
+              sx={{ color: CHAT_COLORS.textOnDark }}
             />
           ))}
           {fieldErrors.targetAxes && (
@@ -81,10 +97,27 @@ export function SessionStartForm({ submitting, fieldErrors, onSubmit }: SessionS
           disabled={submitting || targetAxes.length === 0}
           onClick={() => onSubmit(title, targetAxes)}
           startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
+          sx={{
+            bgcolor: CHAT_COLORS.orange,
+            color: CHAT_COLORS.bubbleText,
+            fontWeight: 700,
+            borderRadius: "999px",
+            "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
+          }}
         >
           開始する
         </Button>
       </Stack>
-    </Paper>
+    </Box>
   );
 }
+
+const inputSx = {
+  "& .MuiInputLabel-root": { color: CHAT_COLORS.textOnDarkMuted },
+  "& .MuiOutlinedInput-root": {
+    color: CHAT_COLORS.textOnDark,
+    "& fieldset": { borderColor: CHAT_COLORS.navyBorder },
+    "&:hover fieldset": { borderColor: CHAT_COLORS.orange },
+    "&.Mui-focused fieldset": { borderColor: CHAT_COLORS.orange },
+  },
+};

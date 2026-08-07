@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
-import Container from "@mui/material/Container";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
@@ -14,6 +14,7 @@ import { ProgressBadge } from "./components/ProgressBadge";
 import { SessionStartForm } from "./components/SessionStartForm";
 import { StartModeChoice } from "./components/StartModeChoice";
 import { useAnalysisChat } from "./use-analysis-chat";
+import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { SelfAnalysisAxis } from "@/types/analysis-session";
 
 // このファイルは状態とAPI呼び出しを持つuseAnalysisChatフックと、
@@ -67,68 +68,88 @@ export default function AnalysisChatPage() {
   }, [draftContent, sendMessage]);
 
   return (
-    <Container maxWidth="sm" sx={{ py: 4 }}>
-      <Stack spacing={2}>
-        <Typography variant="h5" component="h1">
-          自己分析チャット
-        </Typography>
+    <Box
+      sx={{
+        minHeight: "100dvh",
+        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientBottom} 100%)`,
+        display: "flex",
+        justifyContent: "center",
+        pb: "72px",
+      }}
+    >
+      <Box sx={{ width: "100%", maxWidth: 560, px: 2, pt: 3, display: "flex", flexDirection: "column" }}>
+        <Stack spacing={2}>
+          <Typography
+            variant="h6"
+            component="h1"
+            sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700, textAlign: "center" }}
+          >
+            自己分析チャット
+          </Typography>
 
-        {error && <ErrorBanner error={error} />}
+          {error && <ErrorBanner error={error} />}
 
-        {!session && checkingCurrent && <CircularProgress size={24} />}
+          {!session && checkingCurrent && (
+            <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+              <CircularProgress size={24} sx={{ color: CHAT_COLORS.orange }} />
+            </Box>
+          )}
 
-        {/* チャット開始選択: GET /analysis-sessions/current の結果、進行中セッションがあれば
-            「続きから」「初めから」を選ばせる。POSTはまだ呼ばない */}
-        {!session && !checkingCurrent && currentSession && !showNewSessionForm && (
-          <StartModeChoice
-            session={currentSession}
-            onResume={() => void resumeCurrentSession()}
-            onStartNew={chooseStartNew}
-            busy={loadingMessages}
-          />
-        )}
-
-        {/* 進行中セッションがない場合、または「初めから」を選んだ場合の新規セッション作成フォーム。
-            startMode(START_NEW/RESTART_ACTIVE)はhook側がcurrentSessionの有無から自動判定する */}
-        {!session && !checkingCurrent && (!currentSession || showNewSessionForm) && (
-          <SessionStartForm
-            submitting={startingSession}
-            fieldErrors={error?.fieldErrors ?? {}}
-            onSubmit={handleStartSession}
-          />
-        )}
-
-        {session && (
-          <>
-            {/* 経験カード3件必須の表示は廃止。発言数・確認済み経験数の簡易表示のみ */}
-            <ProgressBadge
-              progress={session.progress}
-              missingAxes={missingAxes}
-              experienceReady={experienceReady}
+          {/* チャット開始選択: GET /analysis-sessions/current の結果、進行中セッションがあれば
+              「続きから」「初めから」を選ばせる。POSTはまだ呼ばない */}
+          {!session && !checkingCurrent && currentSession && !showNewSessionForm && (
+            <StartModeChoice
+              session={currentSession}
+              onResume={() => void resumeCurrentSession()}
+              onStartNew={chooseStartNew}
+              busy={loadingMessages}
             />
+          )}
 
-            {/* completionIntent=SUGGESTED、またはcanGenerateResult=trueのときだけ表示する終了案内 */}
-            <CompletionBanner
-              completionIntent={completionIntent}
-              canGenerateResult={session.progress.canGenerateResult}
+          {/* 進行中セッションがない場合、または「初めから」を選んだ場合の新規セッション作成フォーム。
+              startMode(START_NEW/RESTART_ACTIVE)はhook側がcurrentSessionの有無から自動判定する */}
+          {!session && !checkingCurrent && (!currentSession || showNewSessionForm) && (
+            <SessionStartForm
+              submitting={startingSession}
+              fieldErrors={error?.fieldErrors ?? {}}
+              onSubmit={handleStartSession}
             />
+          )}
 
-            {loadingMessages ? (
-              <CircularProgress size={24} />
-            ) : (
-              <MessageList messages={messages} />
-            )}
+          {session && (
+            <>
+              {/* 経験カード3件必須の表示は廃止。発言数・確認済み経験数の簡易表示のみ */}
+              <ProgressBadge
+                progress={session.progress}
+                missingAxes={missingAxes}
+                experienceReady={experienceReady}
+              />
 
-            <MessageComposer
-              value={draftContent}
-              onChange={setDraftContent}
-              onSubmit={handleSendMessage}
-              disabled={sending}
-              fieldError={error?.fieldErrors.content}
-            />
-          </>
-        )}
-      </Stack>
-    </Container>
+              {/* completionIntent=SUGGESTED、またはcanGenerateResult=trueのときだけ表示する終了案内 */}
+              <CompletionBanner
+                completionIntent={completionIntent}
+                canGenerateResult={session.progress.canGenerateResult}
+              />
+
+              {loadingMessages ? (
+                <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+                  <CircularProgress size={24} sx={{ color: CHAT_COLORS.orange }} />
+                </Box>
+              ) : (
+                <MessageList messages={messages} />
+              )}
+
+              <MessageComposer
+                value={draftContent}
+                onChange={setDraftContent}
+                onSubmit={handleSendMessage}
+                disabled={sending}
+                fieldError={error?.fieldErrors.content}
+              />
+            </>
+          )}
+        </Stack>
+      </Box>
+    </Box>
   );
 }
