@@ -10,9 +10,11 @@ flowchart LR
     S --> A["AI Adapter"]
     S --> D["Repository"]
     S --> F["Company Source Fetcher"]
+    S --> E["ES Text Extractor"]
     A --> L["LM Studio<br>127.0.0.1:1234"]
     D --> Q[("SQLite")]
     F --> W["企業公式サイト"]
+    E --> O["PDF text extraction<br>Local OCR"]
 ```
 
 ハッカソン版ではNext.js、SQLite、LM Studio、ブラウザを同じWindows PC上で動かす。LM Studioは`127.0.0.1`だけで待ち受け、ブラウザから直接呼び出さない。
@@ -29,7 +31,8 @@ flowchart LR
 | ORM | Prisma ORM + `@prisma/adapter-better-sqlite3` | Prisma Schemaとmigrationを正本とする |
 | AI | LM Studio | TypeScript SDKをAI Adapter内に隔離 |
 | HTML解析 | Cheerio | P1のURL取り込み |
-| PDF/DOCX | PDF.js / Mammoth | P2。P0に含めない |
+| ES文字抽出 | PDF.js / Tesseract.js | P0。PNG/JPEG/PDFをローカル処理し、日本語・英語を抽出 |
+| 企業資料PDF/DOCX | PDF.js / Mammoth | P2。ES入力とは別機能 |
 | グラフ | Recharts | 4軸の位置と根拠状態の表示に利用可。数値能力グラフにはしない |
 
 Pythonは使用しない。AIモデル名をコードへ直書きせず、環境変数で切り替える。
@@ -56,7 +59,8 @@ src/
   infrastructure/
     ai/                        LM Studio Adapter、プロンプト、JSON検証
     db/                        Prisma Client、repository
-    fetch/                     URL安全性検査、HTML/PDF/DOCX抽出
+    fetch/                     URL安全性検査、企業ページ・企業資料抽出
+    extraction/                ES画像OCR、PDF文字抽出、一時ファイル削除
   shared/
     validation/                Zod、文字数などの決定的ロジック
     errors/                    エラーコードとHTTP変換
@@ -185,12 +189,23 @@ sequenceDiagram
     actor User as ユーザー
     participant UI as Frontend
     participant API as API
+    participant Extractor as ES Text Extractor
     participant AI as AI Adapter
     participant DB as SQLite
 
-    User->>UI: ES原文を入力
+    User->>UI: 文章を貼り付け、またはPNG/JPEG/PDFを選択
+    alt PNG/JPEG/PDF入力
+        UI->>API: POST /es-text-extractions (multipart/form-data)
+        API->>Extractor: MIME・サイズ・ページ数検証後に文字抽出
+        Extractor-->>API: 抽出文・抽出方式・警告
+        API-->>UI: EsTextExtraction
+        UI-->>User: 抽出文を編集可能に表示
+    else 文章貼り付け
+        UI-->>User: 入力文を編集可能に表示
+    end
+    User->>UI: 原文を確認・修正して保存
     UI->>API: POST /es-documents
-    API->>DB: 原文を保存
+    API->>DB: 確認済み原文だけを保存
     UI->>API: POST /es-documents/{id}/analyses
     API->>DB: 全確認済み経験・全セッションレポート・総合プロフィール・企業事実を取得
     API->>AI: 原文 + 設問 + 文字数 + 全候補データ
@@ -206,16 +221,18 @@ sequenceDiagram
     API-->>UI: 完成版ES案 + 変更理由
     UI->>API: POST /es-revisions/{id}/verify
     API->>AI: 完成版ES案を独立して再検査
-    API-->>UI: 提出可否 + 根拠状態・問題箇所・改善理由コメント
+    API-->>UI: 文章の完成版ES案 + 提出可否 + 根拠状態・問題箇所・改善理由コメント
 ```
 
 検査と推敲は、同じモデルを使う場合も別プロンプト・別処理にする。推敲後の再検査が終わるまで「安全」と表示しない。
+
+ES文字抽出はAI Adapterと分離し、外部OCR APIへESを送信しない。PDFは埋め込みテキストを優先し、文字が得られないページだけローカルOCRへフォールバックする。アップロード元ファイルと中間画像は抽出レスポンス後に破棄し、DBへ保存しない。OCR結果は確定事実として扱わず、ユーザーが確認・修正した`originalText`だけを保存・検査する。AIが生成する完成版は`revisedText`という文章だけを返し、画像・PDF出力は行わない。
 
 企業情報は任意とする。企業未登録でも本人経験に関するES検査を実行できるが、企業に関する主張は企業出典なしで`VERIFIED`にしない。全履歴は候補としてAIへ渡すが、本文には設問と文字数に合う経験だけを選ぶ。問題箇所の文字範囲はサーバーが原文へ一意に対応づけられた場合だけ保存する。数値採点は行わない。
 
 ## 9. 企業情報取り込み
 
-P0は文章貼り付けだけを保証する。P1のURL取得は次を満たす場合のみ有効にする。
+企業情報取り込みのP0は文章貼り付けだけを保証する。P1のURL取得は次を満たす場合のみ有効にする。
 
 - `http`または`https`
 - DNS解決後・リダイレクト後を含め、loopback/private/link-local/metadata IPを拒否
