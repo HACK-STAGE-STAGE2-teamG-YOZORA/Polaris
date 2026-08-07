@@ -6,10 +6,18 @@ import type { ReactNode } from "react";
 
 import NextAppDirEmotionCacheProvider from "./emotion-cache";
 
-// 現時点ではFigmaデザイン未確定のため既定テーマをそのまま使う。
-// デザイン確定後はここでブランドカラー・タイポグラフィを差し替えれば、
-// 各画面のコンポーネントを個別に直さずに反映できる。
-const theme = createTheme();
+const theme = createTheme({
+  palette: {
+    mode: "light",
+    primary: { main: "#173f6f" },
+    secondary: { main: "#138879" },
+    background: { default: "#f5f3ed", paper: "#ffffff" },
+  },
+  typography: {
+    fontFamily: '"Yu Gothic UI", "Hiragino Kaku Gothic ProN", system-ui, sans-serif',
+  },
+  shape: { borderRadius: 10 },
+});
 
 export function ThemeRegistry({ children }: { children: ReactNode }) {
   return (
