@@ -2138,11 +2138,12 @@ components:
 
     CreateEsDocumentRequest:
       type: object
-      required: [companyId, question, characterLimit, originalText]
+      required: [question, characterLimit, originalText]
       properties:
         companyId:
           type: string
           format: uuid
+          description: 任意。未指定時は本人経験だけを検査し、企業主張は確認済みにしない。
         targetRole:
           type: string
           maxLength: 200
