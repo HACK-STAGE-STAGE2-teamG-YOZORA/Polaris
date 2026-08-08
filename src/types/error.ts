@@ -13,6 +13,7 @@ export type ErrorCode =
   | "AI_UNAVAILABLE"
   | "AI_TIMEOUT"
   | "AI_INVALID_OUTPUT"
+  | "AI_INPUT_TOO_LARGE"
   | "UNSAFE_URL"
   | "FETCH_FAILED"
   | "PAYLOAD_TOO_LARGE"

@@ -11,6 +11,7 @@ import {
 import { safeEqual } from '@/server/auth/crypto';
 import { exchangeGoogleCode } from '@/server/auth/google';
 import { createSession, setSessionCookie, upsertGoogleUser } from '@/server/auth/session';
+import { logSafeError } from '@/server/safe-log';
 
 export const runtime = 'nodejs';
 
@@ -26,8 +27,9 @@ function clearFlowCookies(response: NextResponse, secure: boolean): void {
   response.cookies.set(OAUTH_VERIFIER_COOKIE_NAME, '', options);
 }
 
+// 失敗時は未ログインのままなので、ホームではなくログイン画面へ戻して理由を表示させる
 function redirectWithError(appUrl: URL, code: string, secure: boolean): NextResponse {
-  const target = new URL('/', appUrl);
+  const target = new URL('/login', appUrl);
   target.searchParams.set('authError', code);
   const response = NextResponse.redirect(target);
   clearFlowCookies(response, secure);
@@ -69,7 +71,9 @@ export async function GET(request: NextRequest): Promise<Response> {
     setSessionCookie(response, config, session.token, session.expiresAt);
     response.headers.set('cache-control', 'no-store');
     return response;
-  } catch {
+  } catch (error) {
+    // 画面へは安全なコードしか返さないため、原因の切り分け用にサーバー側だけへ残す
+    logSafeError('Google認証コールバック', error);
     return redirectWithError(config.appUrl, 'GOOGLE_AUTH_FAILED', config.secureCookies);
   }
 }

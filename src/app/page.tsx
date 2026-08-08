@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import SvgIcon from "@mui/material/SvgIcon";
 import Typography from "@mui/material/Typography";
 
+import { useAuthUser } from "@/app/components/AuthGate";
+import { Constellation } from "@/app/components/Constellation";
 import { apiGet } from "@/lib/api/client";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type {
@@ -51,20 +54,6 @@ function buildAxes(profile: OverallSelfAnalysisProfileResponse): Axis[] {
   }));
 }
 
-function Constellation() {
-  return (
-    <Box component="svg" viewBox="0 0 120 120" aria-label="北斗七星" sx={{ width: 116, height: 116 }}>
-      <g fill="none" stroke="rgba(255,255,255,0.88)" strokeWidth="2">
-        <path d="M12 12 45 29 58 58 43 79 77 104 101 87 72 62" />
-        <path d="M77 104 101 87" />
-      </g>
-      {[[12, 12], [45, 29], [58, 58], [43, 79], [77, 104], [101, 87], [72, 62]].map(([cx, cy]) => (
-        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="3.4" fill="#fff" />
-      ))}
-    </Box>
-  );
-}
-
 function AxisRow({ axis }: { axis: Axis }) {
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: "82px minmax(80px, 1fr) 82px", alignItems: "center", gap: 1 }}>
@@ -95,9 +84,32 @@ function InsightCard({ title, description }: { title: string; description: strin
 
 function ProfileIcon() {
   return (
-    <SvgIcon sx={{ fontSize: 42 }} viewBox="0 0 24 24" aria-label="プロフィール">
+    <SvgIcon sx={{ fontSize: 42 }} viewBox="0 0 24 24">
       <path d="M12 12a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5Zm0 2.1c-4.25 0-7.7 2.34-7.7 5.22V21h15.4v-1.68c0-2.88-3.45-5.22-7.7-5.22Z" />
     </SvgIcon>
+  );
+}
+
+// Googleアカウントの写真。未設定や画像取得失敗のときはMUIが自動でchildren（人型アイコン）へ戻す
+function ProfileAvatar() {
+  const user = useAuthUser();
+  const label = user?.displayName ?? user?.email ?? "プロフィール";
+
+  return (
+    <Avatar
+      src={user?.avatarUrl ?? undefined}
+      alt={label}
+      slotProps={{ img: { referrerPolicy: "no-referrer" } }}
+      sx={{
+        width: 76,
+        height: 76,
+        color: "#54708D",
+        bgcolor: "#F5F5F5",
+        border: "3px solid rgba(255,255,255,.7)",
+      }}
+    >
+      <ProfileIcon />
+    </Avatar>
   );
 }
 
@@ -131,7 +143,7 @@ export default function HomePage() {
         <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
           <Typography component="h1" sx={{ mt: 0.5, fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 46, fontWeight: 400, letterSpacing: "-0.04em" }}>polaris</Typography>
           <Constellation />
-          <Box aria-label="プロフィール画像の仮表示" sx={{ width: 76, height: 76, borderRadius: "50%", display: "grid", placeItems: "center", color: "#54708D", bgcolor: "#F5F5F5", border: "3px solid rgba(255,255,255,.7)" }}><ProfileIcon /></Box>
+          <ProfileAvatar />
         </Box>
 
         <Typography component="h2" sx={{ mt: 7, mb: 3, fontSize: 28, fontWeight: 400, letterSpacing: "0.08em" }}>自己分析結果</Typography>

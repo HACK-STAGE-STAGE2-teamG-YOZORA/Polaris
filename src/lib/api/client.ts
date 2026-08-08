@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api/errors";
+import { LOGIN_PATH } from "@/shared/routes";
 import type { ErrorResponse } from "@/types/error";
 
 // docs/implementation-rules.md: APIベースパスは /api/v1
@@ -44,6 +45,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
+    // セッション切れ（401）はどの画面から呼んでもログイン画面へ戻す。
+    // 呼び出し側のcatchも動くよう、リダイレクトを開始したうえで例外は投げる
+    if (response.status === 401 && typeof window !== "undefined" && window.location.pathname !== LOGIN_PATH) {
+      window.location.assign(LOGIN_PATH);
+    }
     throw new ApiError(response.status, await parseErrorResponse(response));
   }
 
