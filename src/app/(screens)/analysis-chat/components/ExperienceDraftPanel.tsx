@@ -119,6 +119,7 @@ export function ExperienceDraftPanel({
               onClick={() => onCreateDraft(experienceType)}
               disabled={creatingDraft || !hasUserMessage}
               startIcon={creatingDraft ? <CircularProgress size={16} color="inherit" /> : undefined}
+              data-tutorial="create-draft-button"
               sx={{
                 bgcolor: CHAT_COLORS.orange,
                 color: CHAT_COLORS.bubbleText,

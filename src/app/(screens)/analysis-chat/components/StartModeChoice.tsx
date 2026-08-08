@@ -191,6 +191,7 @@ export function StartModeChoice({
             size="large"
             onClick={onStartNew}
             disabled={busy}
+            data-tutorial="start-new-button"
             sx={{
               bgcolor: CHAT_COLORS.orange,
               color: CHAT_COLORS.bubbleText,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -10,9 +11,10 @@ import SvgIcon from "@mui/material/SvgIcon";
 import Typography from "@mui/material/Typography";
 
 import { useAuthUser } from "@/app/components/AuthGate";
+import { useTutorial } from "@/app/components/tutorial/TutorialProvider";
 import { logout } from "@/lib/api/auth";
 import { toDisplayError } from "@/lib/api/error-messages";
-import { LOGIN_PATH } from "@/shared/routes";
+import { HOME_PATH, LOGIN_PATH } from "@/shared/routes";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 
 function ProfileIcon() {
@@ -28,8 +30,15 @@ function ProfileIcon() {
 // ログアウトへの導線がこれまで画面上に存在しなかった穴を埋める
 export default function AccountPage() {
   const user = useAuthUser();
+  const tutorial = useTutorial();
+  const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleRestartTutorial = () => {
+    tutorial.restart();
+    router.push(HOME_PATH);
+  };
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -85,6 +94,28 @@ export default function AccountPage() {
                   {user?.email}
                 </Typography>
               </Stack>
+            </Stack>
+          </Box>
+
+          <Box
+            sx={{
+              borderRadius: 3,
+              border: `1px solid ${CHAT_COLORS.navyBorder}`,
+              bgcolor: CHAT_COLORS.navySurface,
+              p: 2.5,
+            }}
+          >
+            <Stack spacing={1.5} sx={{ alignItems: "flex-start" }}>
+              <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
+                Homeの使い方をもう一度、案内付きで確認できます。
+              </Typography>
+              <Button
+                variant="outlined"
+                onClick={handleRestartTutorial}
+                sx={{ color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder, borderRadius: "999px" }}
+              >
+                チュートリアルをもう一度見る
+              </Button>
             </Stack>
           </Box>
 
