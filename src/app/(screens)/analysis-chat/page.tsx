@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -129,7 +129,20 @@ function AnalysisChatContent() {
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   // 完了済みセッションの結果画面から「続きから会話を再開する」を選んだかどうか。
   // セッションが変わるたびリセットする(古いセッションの選択を引きずらないため)
-  const [continuingSessionId, setContinuingSessionId] = useState<string | null>(null);
+  // ?resume= は別画面の「このセッションの続きから」導線なので、直接会話モードで開く。
+  const [continuingSessionId, setContinuingSessionId] = useState<string | null>(resumeParam);
+
+  // 進行中のセッションに対する通常の「続きから」では、将来の完了結果まで隠さない。
+  // 完了済みセッションを再開したときだけ、最初の新規回答までは旧結果を非表示にする。
+  useEffect(() => {
+    if (
+      session &&
+      session.status !== "COMPLETED" &&
+      continuingSessionId === session.id
+    ) {
+      setContinuingSessionId(null);
+    }
+  }, [session, continuingSessionId]);
 
   const handleStartSession = useCallback(
     (title: string) => {
@@ -149,7 +162,18 @@ function AnalysisChatContent() {
     }
   }, [draftContent, sendMessage]);
 
-  const completed = session?.status === "COMPLETED" && continuingSessionId !== session.id;
+  const handleResumeSession = useCallback(
+    (sessionId: string) => {
+      const resumesCompletedSession = otherSessions.some((item) => item.id === sessionId);
+      setContinuingSessionId(resumesCompletedSession ? sessionId : null);
+      void resumeSession(sessionId);
+    },
+    [otherSessions, resumeSession],
+  );
+
+  const continuingCompletedSession =
+    session?.status === "COMPLETED" && continuingSessionId === session.id;
+  const completed = session?.status === "COMPLETED" && !continuingCompletedSession;
   const showPicker = !session && !loadingResumable && !showNewSessionForm;
   const showStartForm = !session && !loadingResumable && showNewSessionForm;
 
@@ -182,7 +206,7 @@ function AnalysisChatContent() {
           <StartModeChoice
             resumableSessions={resumableSessions}
             otherSessions={otherSessions}
-            onResume={(sessionId) => void resumeSession(sessionId)}
+            onResume={handleResumeSession}
             onViewResult={setViewingSessionId}
             onStartNew={chooseStartNew}
             busy={loadingMessages}
@@ -243,17 +267,19 @@ function AnalysisChatContent() {
                 {/* 終了案内・4軸結果と本人評価は、メッセージ履歴のすぐ下(入力欄の近く)に置く。
                     以前は画面上部に固定されていたため、会話が伸びるほど一番上まで
                     スクロールしないと見えなかった */}
-                <CompletionBanner
-                  completionIntent={completionIntent}
-                  canGenerateResult={session.progress.canGenerateResult}
-                  onGenerateResult={() => void generateResult()}
-                  generatingResult={generatingResult}
-                  sessionStatus={session.status}
-                  confirmedExperienceCount={session.progress.confirmedExperienceCount}
-                  missingAxes={missingAxes}
-                />
+                {!continuingCompletedSession && (
+                  <CompletionBanner
+                    completionIntent={completionIntent}
+                    canGenerateResult={session.progress.canGenerateResult}
+                    onGenerateResult={() => void generateResult()}
+                    generatingResult={generatingResult}
+                    sessionStatus={session.status}
+                    confirmedExperienceCount={session.progress.confirmedExperienceCount}
+                    missingAxes={missingAxes}
+                  />
+                )}
 
-                {assessments.length > 0 && (
+                {!continuingCompletedSession && assessments.length > 0 && (
                   <AxisAssessmentReview
                     assessments={assessments}
                     reviewingAxisId={reviewingAxisId}
