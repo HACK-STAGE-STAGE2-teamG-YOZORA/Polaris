@@ -10,16 +10,16 @@ import { BottomNav } from "@/app/components/BottomNav";
 import { apiGet } from "@/lib/api/client";
 import { HOME_PATH, LOGIN_PATH } from "@/shared/routes";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
-import type { AuthSessionResponse, AuthUserResponse } from "@/types/auth";
+import type { AuthSessionResponse, AuthUser } from "@/types/auth";
 
 type AuthStatus = "loading" | "authenticated" | "anonymous";
 
 // ログイン中のユーザー。AuthGateが取得済みのものを配るだけなので、
 // 各画面から改めて GET /auth/session を呼ぶ必要はない
-const AuthUserContext = createContext<AuthUserResponse | null>(null);
+const AuthUserContext = createContext<AuthUser | null>(null);
 
 // AuthGateの内側でだけ使う。子はログイン済みのときしか描画されないため、常にユーザーが入る
-export function useAuthUser(): AuthUserResponse | null {
+export function useAuthUser(): AuthUser | null {
   return useContext(AuthUserContext);
 }
 
@@ -47,7 +47,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [status, setStatus] = useState<AuthStatus>("loading");
-  const [user, setUser] = useState<AuthUserResponse | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     let cancelled = false;

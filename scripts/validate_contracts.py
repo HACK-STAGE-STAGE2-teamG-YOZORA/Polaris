@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 from pathlib import Path
 
 
@@ -56,21 +55,7 @@ def _collect_refs(value: object) -> list[str]:
     return []
 
 
-def validate_sqlite_schema() -> None:
-    ddl = (ROOT / "docs" / "database-schema.sql").read_text(encoding="utf-8")
-    database = sqlite3.connect(":memory:")
-    try:
-        database.executescript(ddl)
-        tables = [
-            row[0]
-            for row in database.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type = 'table' ORDER BY name"
-            )
-        ]
-    finally:
-        database.close()
-
+def validate_postgresql_schema() -> None:
     expected = {
         "users",
         "auth_sessions",
@@ -95,10 +80,40 @@ def validate_sqlite_schema() -> None:
         "es_revisions",
         "revision_changes",
     }
+
+    migration_paths = sorted((ROOT / "prisma" / "migrations").glob("*/migration.sql"))
+    if not migration_paths:
+        raise RuntimeError("No Prisma migrations found")
+
+    migration_ddl = "\n\n".join(
+        path.read_text(encoding="utf-8").strip() for path in migration_paths
+    )
+    reference_ddl = (ROOT / "docs" / "database-schema.sql").read_text(
+        encoding="utf-8"
+    ).strip()
+    if reference_ddl != migration_ddl:
+        raise RuntimeError(
+            "docs/database-schema.sql must match the ordered Prisma migration SQL"
+        )
+
+    tables = set(re.findall(r'^CREATE TABLE "([^"]+)"', migration_ddl, re.MULTILINE))
     missing = sorted(expected.difference(tables))
     if missing:
-        raise RuntimeError(f"Missing SQLite tables: {', '.join(missing)}")
-    print(f"SQLite DDL: OK ({len(tables)} tables)")
+        raise RuntimeError(f"Missing PostgreSQL tables: {', '.join(missing)}")
+
+    lock_text = (ROOT / "prisma" / "migrations" / "migration_lock.toml").read_text(
+        encoding="utf-8"
+    )
+    if not re.search(r'^provider\s*=\s*"postgresql"\s*$', lock_text, re.MULTILINE):
+        raise RuntimeError("Prisma migration provider must be postgresql")
+
+    if "JSONB" not in migration_ddl or "CREATE TYPE" not in migration_ddl:
+        raise RuntimeError("PostgreSQL migration must use native JSONB and enum types")
+
+    print(
+        f"PostgreSQL DDL/migrations: OK ({len(tables)} tables, "
+        f"{len(migration_paths)} migrations)"
+    )
 
 
 def validate_openapi_refs_textually() -> None:
@@ -122,5 +137,5 @@ def validate_openapi_refs_textually() -> None:
 if __name__ == "__main__":
     validate_json_schemas()
     validate_other_json_documents()
-    validate_sqlite_schema()
+    validate_postgresql_schema()
     validate_openapi_refs_textually()

@@ -1,5 +1,6 @@
 import { createCanvas } from '@napi-rs/canvas';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 import { PrismaClient } from '../src/generated/prisma/client.ts';
 import { SESSION_COOKIE_NAME } from '../src/server/auth/config.ts';
 import { sha256Base64Url } from '../src/server/auth/crypto.ts';
@@ -36,10 +37,10 @@ function textImage(): ArrayBuffer {
   return copy.buffer;
 }
 
-await withE2eServer(async ({ request }) => {
+await withE2eServer(async ({ request, schemaName }) => {
   const anonymousSession = expectStatus(await request('/api/v1/auth/session', { authenticated: false }), 200, 'anonymous auth session');
   assert(anonymousSession.authenticated === false && anonymousSession.user === null, '未認証状態が不正です。');
-  const authHeaders = { cookie: `${SESSION_COOKIE_NAME}=${AUTH_TEST_TOKEN}` };
+  const authHeaders = { cookie: `${SESSION_COOKIE_NAME}=${AUTH_TEST_TOKEN}-${schemaName}` };
   const authenticatedSession = expectStatus(await request('/api/v1/auth/session', { headers: authHeaders }), 200, 'authenticated session');
   assert(authenticatedSession.authenticated === true, '認証済み状態が不正です。');
   assert(object(authenticatedSession.user, 'authenticated user').email === 'auth-contract@example.com', '認証ユーザーが不正です。');
@@ -187,26 +188,29 @@ await withE2eServer(async ({ request }) => {
 }, {
   GOOGLE_OAUTH_CLIENT_ID: '',
   GOOGLE_OAUTH_CLIENT_SECRET: '',
-}, async (databaseUrl) => {
-  const adapter = new PrismaBetterSqlite3({ url: databaseUrl });
+}, async (databaseUrl, _userId, schemaName) => {
+  const contractPool = new pg.Pool({ connectionString: databaseUrl });
+  const adapter = new PrismaPg(contractPool, { schema: schemaName });
   const authPrisma = new PrismaClient({ adapter });
   try {
     const user = await authPrisma.user.create({
       data: {
-        googleSubject: 'google-auth-contract-subject',
+        googleSubject: `google-auth-contract-subject-${schemaName}`,
         email: 'auth-contract@example.com',
         displayName: '認証契約テスト',
       },
     });
+    const uniqueToken = `${AUTH_TEST_TOKEN}-${schemaName}`;
     await authPrisma.authSession.create({
       data: {
         userId: user.id,
-        tokenHash: sha256Base64Url(AUTH_TEST_TOKEN),
+        tokenHash: sha256Base64Url(uniqueToken),
         expiresAt: new Date(Date.now() + 60_000),
       },
     });
   } finally {
     await authPrisma.$disconnect();
+    await contractPool.end();
   }
 });
 

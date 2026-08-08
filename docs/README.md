@@ -14,6 +14,7 @@
 7. [screen-api-map.md](./screen-api-map.md) — 画面、担当、API、必須状態の対応
 8. [implementation-rules.md](./implementation-rules.md) — エラー、文字数、日時、セキュリティ、テスト規約
 9. [decisions.md](./decisions.md) — 決定事項と、チームで回答が必要な未決事項
+10. [postgresql-migration.md](./postgresql-migration.md) — PostgreSQLセットアップ、migration、SQLiteデータ方針
 
 AIの構造化出力用JSON Schemaは[`contracts/ai`](../contracts/ai/)に置く。
 企業提案候補の共有形式は[`contracts/company-catalog.schema.json`](../contracts/company-catalog.schema.json)、
@@ -56,9 +57,9 @@ npm.cmd run test:ai-schema
 npm.cmd run test:ai-p0
 ```
 
-- `test:contracts`: AI JSON Schema、OpenAPI完全parse・内部参照、P0 Route対応、代表レスポンス、SQLite DDLを検証する。
+- `test:contracts`: AI JSON Schema、OpenAPI完全parse・内部参照、P0 Route対応、代表レスポンス、PostgreSQL DDLとPrisma migrationの一致を検証する。
 - `test:ai-schema`: LM Studio向けに簡略化した生成Schemaが、出力フィールド名を削除していないことを検証する。
-- `test:ai-p0`: 一時SQLite DBと一時Next.jsサーバーを使い、複数セッションの自己分析、企業根拠付きES、再検査、提出可否までとAI異常系をHTTP経由で検証する。全レスポンスをOpenAPIへ照合し、既存の開発DBは変更しない。
+- `test:ai-p0`: 一時PostgreSQL schemaと一時Next.jsサーバーを使い、複数セッションの自己分析、企業根拠付きES、再検査、提出可否までとAI異常系をHTTP経由で検証する。全レスポンスをOpenAPIへ照合し、既存の開発schemaは変更しない。
 
 Redocly CLIによるlintは追加の任意検証であり、現在の`package.json`には依存関係として固定していない。
 

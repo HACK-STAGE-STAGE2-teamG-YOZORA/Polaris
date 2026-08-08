@@ -1,31 +1,4 @@
-import { createRequire } from "node:module";
-
-type Statement = {
-  get(...parameters: unknown[]): unknown;
-  run(...parameters: unknown[]): unknown;
-};
-
-type SqliteDatabase = {
-  prepare(sql: string): Statement;
-  close(): void;
-};
-
-const Database = createRequire(import.meta.url)("better-sqlite3") as new (path: string) => SqliteDatabase;
-const databaseUrl = process.env.DATABASE_URL ?? "file:./data/polaris.db";
-
-if (!databaseUrl.startsWith("file:")) {
-  throw new Error("DATABASE_URLにはSQLiteのfile: URLを指定してください。");
-}
-
-const database = new Database(databaseUrl.replace(/^file:/u, ""));
-const existing = database.prepare("SELECT id FROM overall_self_analysis_profiles WHERE id = ?").get("default");
-
-if (existing) {
-  database.close();
-  throw new Error("総合プロフィールが既にあります。実データを保護するため、デモデータは投入しませんでした。");
-}
-
-const now = new Date().toISOString();
+import { prisma } from "../src/lib/prisma.ts";
 const axisTrends = [
   {
     axis: "ENERGY_SOURCE",
@@ -95,29 +68,52 @@ const weaknesses = [
   },
 ];
 
-try {
-  database.prepare(`INSERT INTO overall_self_analysis_profiles
-    (id, summary, axis_trends_json, strengths_json, weaknesses_json, source_report_ids_json,
-     completed_session_count, user_message_count, confirmed_experience_count, is_data_sparse,
-     data_warning_reasons_json, freshness, generated_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(
-      "default",
-      "深く考える集中力と、試行を通じて改善する柔軟さをあわせ持つプロフィールです。",
-      JSON.stringify(axisTrends),
-      JSON.stringify(strengths),
-      JSON.stringify(weaknesses),
-      JSON.stringify([]),
-      2,
-      12,
-      3,
-      0,
-      JSON.stringify([]),
-      "CURRENT",
-      now,
-      now,
+async function main(): Promise<void> {
+  const targetEmail = process.env.DEMO_USER_EMAIL?.trim();
+  if (!targetEmail) {
+    throw new Error("DEMO_USER_EMAILに、ログイン済みユーザーのメールアドレスを指定してください。");
+  }
+
+  const users = await prisma.user.findMany({
+    where: { email: targetEmail },
+    select: { id: true },
+    take: 2,
+  });
+  if (users.length !== 1) {
+    throw new Error(
+      users.length === 0
+        ? "DEMO_USER_EMAILに一致するユーザーがありません。先にGoogleログインしてください。"
+        : "DEMO_USER_EMAILに一致するユーザーが複数あります。データ投入を中止しました。",
     );
+  }
+
+  const userId = users[0].id;
+  const existing = await prisma.overallSelfAnalysisProfile.findUnique({ where: { userId } });
+  if (existing) {
+    throw new Error("対象ユーザーの総合プロフィールが既にあります。実データを保護するため投入しませんでした。");
+  }
+
+  await prisma.overallSelfAnalysisProfile.create({
+    data: {
+      userId,
+      summary: "深く考える集中力と、試行を通じて改善する柔軟さをあわせ持つプロフィールです。",
+      axisTrends,
+      strengths,
+      weaknesses,
+      sourceReportIds: [],
+      completedSessionCount: 2,
+      userMessageCount: 12,
+      confirmedExperienceCount: 3,
+      isDataSparse: false,
+      dataWarningReasons: [],
+      freshness: "CURRENT",
+    },
+  });
   console.log("ダッシュボード用のデモプロフィールを投入しました。");
+}
+
+try {
+  await main();
 } finally {
-  database.close();
+  await prisma.$disconnect();
 }

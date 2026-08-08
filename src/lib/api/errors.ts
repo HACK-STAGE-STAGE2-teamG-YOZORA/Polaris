@@ -14,3 +14,15 @@ export class ApiError extends Error {
     this.response = response;
   }
 }
+
+// レスポンスがOKでない場合、application/problem+json のボディをApiErrorへ変換してthrowする。
+// ボディがErrorResponseの形をしていない(想定外のエラー)場合はそのままthrowする。
+// client.ts の apiGet/apiPost を経由しない呼び出し(es-documents.ts が fetch を直接使う箇所)で使う
+export async function throwIfError(res: Response): Promise<void> {
+  if (res.ok) return;
+  const body: unknown = await res.json().catch(() => null);
+  if (body && typeof body === "object" && "code" in body && "message" in body) {
+    throw new ApiError(res.status, body as ErrorResponse);
+  }
+  throw new Error(`APIリクエストに失敗しました (status: ${res.status})`);
+}

@@ -1,12 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { createRequire } from 'node:module';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
+import { PrismaClient } from '../src/generated/prisma/client.ts';
 import { withE2eServer, type ApiResult } from './e2e-harness.ts';
-
-type SqliteDatabase = {
-  prepare(sql: string): { run(...parameters: unknown[]): unknown };
-  close(): void;
-};
-const Database = createRequire(import.meta.url)('better-sqlite3') as new (path: string) => SqliteDatabase;
 
 type JsonObject = Record<string, unknown>;
 const seeded: { companyIds: string[]; sourceIds: string[]; experienceId?: string; revisionId?: string; changeId?: string } = {
@@ -28,84 +23,137 @@ function expectStatus(result: ApiResult, expected: number, label: string): JsonO
   return object(result.body, label);
 }
 
-async function seed(databaseUrl: string, userId: string): Promise<void> {
-  const database = new Database(databaseUrl.replace(/^file:/u, ''));
-  const now = new Date().toISOString();
+async function seed(databaseUrl: string, userId: string, schemaName: string): Promise<void> {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  const prisma = new PrismaClient({ adapter: new PrismaPg(pool, { schema: schemaName }) });
   try {
-    const sessionId = randomUUID();
-    const experienceId = randomUUID();
-    const reportId = randomUUID();
-    database.prepare(`INSERT INTO analysis_sessions
-      (id, user_id, title, status, target_axes_json, created_at, updated_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(sessionId, userId, 'P1 E2E', 'COMPLETED', JSON.stringify(['ENERGY_SOURCE', 'ACTION_STYLE', 'SATISFACTION_SOURCE', 'PREFERRED_ENVIRONMENT']), now, now, now);
-    database.prepare(`INSERT INTO experiences
-      (id, user_id, type, title, situation, goal, role, options_json, decision, decision_reason, actions_json, result,
-       positive_emotion, negative_emotion, energy_change, environment_json, status, confirmed_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`)
-      .run(experienceId, userId, 'ACHIEVEMENT', 'チーム開発の改善', '4人チームでWebアプリを開発した。',
-        'API設計とタスク分解を担当した。', '[]', JSON.stringify(['APIを設計した', 'タスクを分解した']),
-        '期限内に完成した。', 1, JSON.stringify(['少人数チーム', '役割分担あり']), 'CONFIRMED', now, now, now);
-    seeded.experienceId = experienceId;
-    database.prepare(`INSERT INTO self_analysis_reports
-      (id, source_session_id, summary, axis_snapshots_json, must_conditions_json, prefer_conditions_json,
-       avoid_conditions_json, verify_conditions_json, next_experiments_json, user_message_count,
-       confirmed_experience_count, is_stale, generated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(reportId, sessionId, '少人数チームで役割を明確にし、計画的に改善する経験を重視する。', '[]',
-        JSON.stringify(['役割が明確である']), JSON.stringify(['改善提案ができる']), JSON.stringify(['役割が極端に曖昧である']),
-        JSON.stringify(['若手の裁量範囲']), '[]', 1, 1, 0, now);
+    await prisma.$transaction(async (transaction) => {
+      const session = await transaction.analysisSession.create({
+        data: {
+          userId,
+          title: 'P1 E2E',
+          status: 'COMPLETED',
+          targetAxes: ['ENERGY_SOURCE', 'ACTION_STYLE', 'SATISFACTION_SOURCE', 'PREFERRED_ENVIRONMENT'],
+          completedAt: new Date(),
+        },
+      });
+      const experience = await transaction.experience.create({
+        data: {
+          userId,
+          sourceSessionId: session.id,
+          type: 'ACHIEVEMENT',
+          title: 'チーム開発の改善',
+          situation: '4人チームでWebアプリを開発した。',
+          role: 'API設計とタスク分解を担当した。',
+          options: [],
+          actions: ['APIを設計した', 'タスクを分解した'],
+          result: '期限内に完成した。',
+          energyChange: 1,
+          environment: ['少人数チーム', '役割分担あり'],
+          status: 'CONFIRMED',
+          confirmedAt: new Date(),
+        },
+      });
+      seeded.experienceId = experience.id;
+      await transaction.selfAnalysisReport.create({
+        data: {
+          sourceSessionId: session.id,
+          summary: '少人数チームで役割を明確にし、計画的に改善する経験を重視する。',
+          axisSnapshots: [],
+          mustConditions: ['役割が明確である'],
+          preferConditions: ['改善提案ができる'],
+          avoidConditions: ['役割が極端に曖昧である'],
+          verifyConditions: ['若手の裁量範囲'],
+          nextExperiments: [],
+          userMessageCount: 1,
+          confirmedExperienceCount: 1,
+        },
+      });
 
-    for (const [index, name] of ['北極星テック', 'コンパスラボ', 'オーロラシステムズ'].entries()) {
-      const companyId = randomUUID();
-      const sourceId = randomUUID();
-      database.prepare(`INSERT INTO companies
-        (id, user_id, name, target_role, origin, official_url, career_url, recommendation_eligible, note, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?)`)
-        .run(companyId, userId, name, 'バックエンドエンジニア', 'USER_REGISTERED', 1, now, now);
-      const quote = `${name}では若手社員による改善提案とチーム開発を歓迎します。`;
-      database.prepare(`INSERT INTO company_sources
-        (id, company_id, type, trust_level, title, source_url, raw_text, content_hash, unknown_items_json, retrieved_at, created_at)
-        VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`)
-        .run(sourceId, companyId, 'TEXT', 'OFFICIAL', `${name}採用情報`, quote, `p1-e2e-${index}`, '[]', now, now);
-      database.prepare(`INSERT INTO company_facts
-        (id, company_source_id, category, fact, evidence_quote, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(randomUUID(), sourceId, 'WORK_ENVIRONMENT', '若手社員の改善提案とチーム開発を歓迎する。', quote, now);
-      seeded.companyIds.push(companyId);
-      seeded.sourceIds.push(sourceId);
-    }
+      for (const [index, name] of ['北極星テック', 'コンパスラボ', 'オーロラシステムズ'].entries()) {
+        const company = await transaction.company.create({
+          data: {
+            userId,
+            name,
+            targetRole: 'バックエンドエンジニア',
+            recommendationEligible: true,
+          },
+        });
+        const quote = `${name}では若手社員による改善提案とチーム開発を歓迎します。`;
+        const source = await transaction.companySource.create({
+          data: {
+            companyId: company.id,
+            type: 'TEXT',
+            trustLevel: 'OFFICIAL',
+            title: `${name}採用情報`,
+            rawText: quote,
+            contentHash: `p1-e2e-${index}`,
+            unknownItems: [],
+            retrievedAt: new Date(),
+          },
+        });
+        await transaction.companyFact.create({
+          data: {
+            companySourceId: source.id,
+            category: 'WORK_ENVIRONMENT',
+            fact: '若手社員の改善提案とチーム開発を歓迎する。',
+            evidenceQuote: quote,
+          },
+        });
+        seeded.companyIds.push(company.id);
+        seeded.sourceIds.push(source.id);
+      }
 
-    const documentId = randomUUID();
-    const analysisId = randomUUID();
-    const revisionId = randomUUID();
-    const changeId = randomUUID();
-    database.prepare(`INSERT INTO es_documents
-      (id, user_id, company_id, target_role, question, character_limit, original_text, preferred_experience_ids_json,
-       emphasis_json, status, created_at, updated_at)
-      VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(documentId, userId, 'チームで取り組んだ経験を説明してください。', 300, '4人チームでAPI設計を担当しました。',
-        JSON.stringify([experienceId]), '[]', 'REVISED', now, now);
-    database.prepare(`INSERT INTO es_analyses
-      (id, es_document_id, revision_id, source_kind, freshness, character_count, within_character_limit,
-       question_coverage, submission_readiness, issues_json, comments_json, created_at)
-      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(analysisId, documentId, 'ORIGINAL', 'CURRENT', 20, 1, 'ANSWERED', 'NEEDS_REVIEW', '[]', '[]', now);
-    database.prepare(`INSERT INTO es_revisions
-      (id, es_document_id, based_on_analysis_id, freshness, revised_text, used_experience_ids_json,
-       used_session_report_ids_json, character_count, verification_analysis_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`)
-      .run(revisionId, documentId, analysisId, 'CURRENT', '4人チームでAPI設計とタスク分解を担当しました。',
-        JSON.stringify([experienceId]), '[]', 26, now);
-    database.prepare(`INSERT INTO revision_changes
-      (id, es_revision_id, before_text, after_text, reason, evidence_json, decision, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(changeId, revisionId, 'API設計を担当', 'API設計とタスク分解を担当', '確認済み経験を具体化するため',
-        JSON.stringify([{ sourceType: 'EXPERIENCE', sourceId: experienceId, quote: 'API設計とタスク分解を担当した。' }]),
-        'PENDING', now, now);
-    seeded.revisionId = revisionId;
-    seeded.changeId = changeId;
+      const document = await transaction.esDocument.create({
+        data: {
+          userId,
+          question: 'チームで取り組んだ経験を説明してください。',
+          characterLimit: 300,
+          originalText: '4人チームでAPI設計を担当しました。',
+          preferredExperienceIds: [experience.id],
+          emphasis: [],
+          status: 'REVISED',
+        },
+      });
+      const analysis = await transaction.esAnalysis.create({
+        data: {
+          esDocumentId: document.id,
+          sourceKind: 'ORIGINAL',
+          freshness: 'CURRENT',
+          characterCount: 20,
+          withinCharacterLimit: true,
+          questionCoverage: 'ANSWERED',
+          submissionReadiness: 'NEEDS_REVIEW',
+          issues: [],
+          comments: [],
+        },
+      });
+      const revision = await transaction.esRevision.create({
+        data: {
+          esDocumentId: document.id,
+          basedOnAnalysisId: analysis.id,
+          freshness: 'CURRENT',
+          revisedText: '4人チームでAPI設計とタスク分解を担当しました。',
+          usedExperienceIds: [experience.id],
+          usedSessionReportIds: [],
+          characterCount: 26,
+        },
+      });
+      const change = await transaction.revisionChange.create({
+        data: {
+          esRevisionId: revision.id,
+          beforeText: 'API設計を担当',
+          afterText: 'API設計とタスク分解を担当',
+          reason: '確認済み経験を具体化するため',
+          evidence: [{ sourceType: 'EXPERIENCE', sourceId: experience.id, quote: 'API設計とタスク分解を担当した。' }],
+        },
+      });
+      seeded.revisionId = revision.id;
+      seeded.changeId = change.id;
+    });
   } finally {
-    database.close();
+    await prisma.$disconnect();
+    await pool.end();
   }
 }
 
