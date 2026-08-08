@@ -39,11 +39,16 @@ export default function AnalysisChatPage() {
     startingSession,
     loadingMessages,
     sending,
+    generatingResult,
+    assessments,
+    finalizingSession,
     error,
     resumeCurrentSession,
     chooseStartNew,
     startSession,
     sendMessage,
+    generateResult,
+    finalizeSession,
   } = useAnalysisChat();
 
   // 送信中の入力内容はこの画面だけのUI状態なので、フックではなくここで持つ
@@ -129,6 +134,12 @@ export default function AnalysisChatPage() {
               <CompletionBanner
                 completionIntent={completionIntent}
                 canGenerateResult={session.progress.canGenerateResult}
+                onGenerateResult={() => void generateResult()}
+                generatingResult={generatingResult}
+                sessionStatus={session.status}
+                assessments={assessments}
+                onFinalizeSession={finalizeSession}
+                finalizingSession={finalizingSession}
               />
 
               {loadingMessages ? (
