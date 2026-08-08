@@ -3,8 +3,16 @@
 import { useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
 import CircularProgress from "@mui/material/CircularProgress";
+import FormControl from "@mui/material/FormControl";
+import FormHelperText from "@mui/material/FormHelperText";
 import IconButton from "@mui/material/IconButton";
+import InputLabel from "@mui/material/InputLabel";
+import ListItemText from "@mui/material/ListItemText";
+import MenuItem from "@mui/material/MenuItem";
+import OutlinedInput from "@mui/material/OutlinedInput";
+import Select from "@mui/material/Select";
 import Snackbar from "@mui/material/Snackbar";
 import Stack from "@mui/material/Stack";
 import SvgIcon from "@mui/material/SvgIcon";
@@ -16,10 +24,13 @@ import { extractEsText } from "@/lib/api/es-documents";
 import { ApiError } from "@/lib/api/errors";
 import { countCodePoints } from "@/shared/validation/count-code-points";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
+import type { CompanySummary } from "@/types/company";
 import type { CreateEsDocumentRequest } from "@/types/es-document";
+import type { ExperienceResponse } from "@/types/experience";
 
 // docs/openapi.yaml CreateEsDocumentRequest の上限
 const MAX_QUESTION_LENGTH = 5000;
+const MAX_TARGET_ROLE_LENGTH = 200;
 const MAX_ORIGINAL_TEXT_LENGTH = 20000;
 const MAX_CHARACTER_LIMIT = 10000;
 
@@ -88,12 +99,24 @@ interface EsInputFormProps {
   // 現在実行中のAPI呼び出し段階(作成/原文分析/推敲)を表す文言。実行中でなければnull
   progressLabel?: string | null;
   fieldErrors: Record<string, string>;
+  companies: CompanySummary[];
+  experiences: ExperienceResponse[];
   onSubmit: (request: CreateEsDocumentRequest) => void;
 }
 
-// ES入力フォーム。設問・文字数上限・ES原文を入力し、「添削する」でES文書作成→推敲まで進める。
+// ES入力フォーム。設問・文字数上限・ES原文を入力し、「検査する」でES文書作成→原文検査まで進める。
 // PNG/JPEG/PDFの添付は POST /api/v1/es-text-extractions で抽出した文章をES原文欄へ反映する
-export function EsInputForm({ submitting, progressLabel, fieldErrors, onSubmit }: EsInputFormProps) {
+export function EsInputForm({
+  submitting,
+  progressLabel,
+  fieldErrors,
+  companies,
+  experiences,
+  onSubmit,
+}: EsInputFormProps) {
+  const [companyId, setCompanyId] = useState("");
+  const [targetRole, setTargetRole] = useState("");
+  const [preferredExperienceIds, setPreferredExperienceIds] = useState<string[]>([]);
   const [question, setQuestion] = useState("");
   const [characterLimit, setCharacterLimit] = useState("400");
   const [originalText, setOriginalText] = useState("");
@@ -112,8 +135,9 @@ export function EsInputForm({ submitting, progressLabel, fieldErrors, onSubmit }
   const canSubmit =
     !submitting &&
     !extracting &&
-    question.trim().length > 0 &&
-    question.length <= MAX_QUESTION_LENGTH &&
+    countCodePoints(targetRole) <= MAX_TARGET_ROLE_LENGTH &&
+    countCodePoints(question.trim()) > 0 &&
+    countCodePoints(question) <= MAX_QUESTION_LENGTH &&
     hasValidCharacterLimit &&
     originalTextLength > 0 &&
     originalTextLength <= MAX_ORIGINAL_TEXT_LENGTH;
@@ -121,9 +145,12 @@ export function EsInputForm({ submitting, progressLabel, fieldErrors, onSubmit }
   const handleSubmit = () => {
     if (!canSubmit) return;
     onSubmit({
+      companyId: companyId || null,
+      targetRole: targetRole.trim() || null,
       question,
       characterLimit: characterLimitValue,
       originalText,
+      preferredExperienceIds,
     });
   };
 
@@ -167,14 +194,99 @@ export function EsInputForm({ submitting, progressLabel, fieldErrors, onSubmit }
           ESを入力する
         </Typography>
 
+        <FormControl fullWidth error={Boolean(fieldErrors.companyId)}>
+          <InputLabel id="es-company-label">企業（任意）</InputLabel>
+          <Select
+            labelId="es-company-label"
+            value={companyId}
+            label="企業（任意）"
+            disabled={submitting}
+            onChange={(event) => {
+              const nextCompanyId = event.target.value;
+              setCompanyId(nextCompanyId);
+              const company = companies.find((item) => item.id === nextCompanyId);
+              if (!targetRole.trim() && company?.targetRole) setTargetRole(company.targetRole);
+            }}
+            sx={{ bgcolor: CHAT_COLORS.userBubble, borderRadius: "16px" }}
+          >
+            <MenuItem value="">企業を指定しない</MenuItem>
+            {companies.map((company) => (
+              <MenuItem key={company.id} value={company.id}>
+                {company.name}
+              </MenuItem>
+            ))}
+          </Select>
+          <FormHelperText>
+            {fieldErrors.companyId ?? (companies.length === 0 ? "登録済み企業はありません。" : "企業情報は任意です。")}
+          </FormHelperText>
+        </FormControl>
+
+        <Stack spacing={0.75}>
+          <FieldLabel>応募職種（任意）</FieldLabel>
+          <TextField
+            placeholder="例: ソフトウェアエンジニア"
+            value={targetRole}
+            onChange={(event) => setTargetRole(event.target.value)}
+            error={Boolean(fieldErrors.targetRole) || countCodePoints(targetRole) > MAX_TARGET_ROLE_LENGTH}
+            helperText={
+              fieldErrors.targetRole ??
+              (countCodePoints(targetRole) > MAX_TARGET_ROLE_LENGTH
+                ? `${MAX_TARGET_ROLE_LENGTH}文字以内で入力してください。`
+                : undefined)
+            }
+            fullWidth
+            disabled={submitting}
+            sx={fieldSx}
+          />
+        </Stack>
+
+        <FormControl fullWidth error={Boolean(fieldErrors.preferredExperienceIds)}>
+          <InputLabel id="es-experiences-label">優先する経験（任意）</InputLabel>
+          <Select
+            labelId="es-experiences-label"
+            multiple
+            value={preferredExperienceIds}
+            disabled={submitting}
+            onChange={(event) => {
+              const value = event.target.value;
+              setPreferredExperienceIds(typeof value === "string" ? value.split(",") : value);
+            }}
+            input={<OutlinedInput label="優先する経験（任意）" />}
+            renderValue={(selected) =>
+              selected
+                .map((id) => experiences.find((experience) => experience.id === id)?.title ?? id)
+                .join("、")
+            }
+            sx={{ bgcolor: CHAT_COLORS.userBubble, borderRadius: "16px" }}
+          >
+            {experiences.map((experience) => (
+              <MenuItem key={experience.id} value={experience.id}>
+                <Checkbox checked={preferredExperienceIds.includes(experience.id)} />
+                <ListItemText primary={experience.title} secondary={experience.situation} />
+              </MenuItem>
+            ))}
+          </Select>
+          <FormHelperText>
+            {fieldErrors.preferredExperienceIds ??
+              (experiences.length === 0
+                ? "確認済み経験はありません。未指定でもESの保存と検査はできます。"
+                : "未選択の確認済み経験も候補から除外されません。")}
+          </FormHelperText>
+        </FormControl>
+
         <Stack spacing={0.75}>
           <FieldLabel required>設問</FieldLabel>
           <TextField
             placeholder="学生時代に力を入れたことを教えてください"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            error={Boolean(fieldErrors.question)}
-            helperText={fieldErrors.question}
+            error={Boolean(fieldErrors.question) || countCodePoints(question) > MAX_QUESTION_LENGTH}
+            helperText={
+              fieldErrors.question ??
+              (countCodePoints(question) > MAX_QUESTION_LENGTH
+                ? `${MAX_QUESTION_LENGTH}文字以内で入力してください。`
+                : undefined)
+            }
             multiline
             minRows={2}
             fullWidth
@@ -274,7 +386,7 @@ export function EsInputForm({ submitting, progressLabel, fieldErrors, onSubmit }
             "&.Mui-disabled": { bgcolor: CHAT_COLORS.orangeMuted, color: CHAT_COLORS.textOnDarkMuted },
           }}
         >
-          添削する
+          検査する
         </Button>
 
         {submitting && progressLabel && (

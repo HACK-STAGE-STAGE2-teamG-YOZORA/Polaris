@@ -1,6 +1,8 @@
 "use client";
 
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
@@ -19,17 +21,23 @@ import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 export default function EsRevisionPage() {
   const {
     step,
+    accessStatus,
+    companies,
+    experiences,
     esDocument,
+    originalAnalysis,
     esRevision,
     verifyAnalysis,
-    comments,
-    submissionReadiness,
     submitting,
     verifying,
+    reviewingChangeId,
     progressLabel,
     error,
-    startRevision,
+    startAnalysis,
+    requestRevision,
     requestComments,
+    reviewChange,
+    reloadContext,
   } = useEsRevision();
 
   return (
@@ -54,31 +62,99 @@ export default function EsRevisionPage() {
 
           {error && <EsErrorBanner error={error} />}
 
-          {step === "INPUT" && (
+          {(accessStatus === "CHECKING" || accessStatus === "LOADING_CONTEXT") && (
+            <Stack spacing={1.5} sx={{ alignItems: "center", py: 6 }}>
+              <CircularProgress sx={{ color: CHAT_COLORS.orange }} />
+              <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
+                {accessStatus === "CHECKING" ? "ログイン状態を確認しています…" : "企業と経験を読み込んでいます…"}
+              </Typography>
+            </Stack>
+          )}
+
+          {accessStatus === "UNAUTHENTICATED" && (
+            <Box sx={{ borderRadius: 3, bgcolor: CHAT_COLORS.navySurface, p: 3, textAlign: "center" }}>
+              <Stack spacing={2}>
+                <Typography variant="h6" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
+                  ES推敲にはログインが必要です
+                </Typography>
+                <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
+                  個人の経験・企業情報・ESを安全に分離するため、Googleでログインしてください。
+                </Typography>
+                <Button
+                  component="a"
+                  href="/api/v1/auth/google/start"
+                  variant="contained"
+                  sx={{ bgcolor: CHAT_COLORS.orange, color: CHAT_COLORS.bubbleText, fontWeight: 700 }}
+                >
+                  Googleでログイン
+                </Button>
+              </Stack>
+            </Box>
+          )}
+
+          {accessStatus === "ERROR" && (
+            <Button variant="outlined" onClick={() => void reloadContext()} sx={{ color: CHAT_COLORS.orange }}>
+              読み込みを再試行
+            </Button>
+          )}
+
+          {accessStatus === "READY" && step === "INPUT" && (
             <EsInputForm
               submitting={submitting}
               progressLabel={submitting ? progressLabel : null}
               fieldErrors={error?.fieldErrors ?? {}}
-              onSubmit={(request) => void startRevision(request)}
+              companies={companies}
+              experiences={experiences}
+              onSubmit={(request) => void startAnalysis(request)}
             />
           )}
 
-          {step === "RESULT" && esDocument && esRevision && (
+          {accessStatus === "READY" && step === "ANALYSIS" && esDocument && originalAnalysis && (
+            <Stack spacing={2}>
+              <Typography variant="h6" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
+                ES原文の検査結果
+              </Typography>
+              <EsComments
+                analysis={originalAnalysis}
+                characterLimit={esDocument.characterLimit}
+                sourceText={esDocument.originalText}
+                submissionReadiness={originalAnalysis.submissionReadiness}
+              />
+              <Button
+                variant="contained"
+                disabled={submitting}
+                onClick={() => void requestRevision()}
+                startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
+                sx={{ bgcolor: CHAT_COLORS.orange, color: CHAT_COLORS.bubbleText, fontWeight: 700 }}
+              >
+                完成版ES案を作る
+              </Button>
+              {submitting && progressLabel && (
+                <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted, textAlign: "center" }}>
+                  {progressLabel}
+                </Typography>
+              )}
+            </Stack>
+          )}
+
+          {accessStatus === "READY" && step === "RESULT" && esDocument && esRevision && (
             <EsRevisionResult
               esDocument={esDocument}
               esRevision={esRevision}
               onRequestComments={() => void requestComments()}
+              onReviewChange={(changeId, decision) => void reviewChange(changeId, decision)}
+              reviewingChangeId={reviewingChangeId}
               loading={verifying}
               progressLabel={verifying ? progressLabel : null}
             />
           )}
 
-          {step === "COMMENTS" && esDocument && verifyAnalysis && submissionReadiness && (
+          {accessStatus === "READY" && step === "COMMENTS" && esDocument && esRevision && verifyAnalysis && (
             <EsComments
               analysis={verifyAnalysis}
               characterLimit={esDocument.characterLimit}
-              comments={comments}
-              submissionReadiness={submissionReadiness}
+              sourceText={esRevision.revisedText}
+              submissionReadiness={verifyAnalysis.submissionReadiness}
             />
           )}
         </Stack>

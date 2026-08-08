@@ -8,8 +8,8 @@ export type ResultFreshness = "CURRENT" | "STALE";
 
 export interface EsDocumentSummary {
   id: string;
-  companyId?: string;
-  targetRole?: string;
+  companyId: string | null;
+  targetRole: string | null;
   question: string;
   characterLimit: number;
   characterCount: number;
@@ -28,8 +28,8 @@ export interface EsDocument extends EsDocumentSummary {
 
 // companyIdは任意。未指定時は本人経験だけを検査し、企業主張は確認済みにしない(docs/openapi.yaml参照)
 export interface CreateEsDocumentRequest {
-  companyId?: string;
-  targetRole?: string;
+  companyId?: string | null;
+  targetRole?: string | null;
   question: string;
   characterLimit: number;
   originalText: string;
@@ -38,7 +38,8 @@ export interface CreateEsDocumentRequest {
 }
 
 export interface UpdateEsDocumentRequest {
-  targetRole?: string;
+  companyId?: string | null;
+  targetRole?: string | null;
   question?: string;
   characterLimit?: number;
   originalText?: string;
@@ -72,7 +73,8 @@ export interface EsClaim {
   type: ClaimType;
   status: ClaimStatus;
   evidence: ClaimEvidence[];
-  explanation?: string;
+  explanation: string | null;
+  targetRange: TextRange | null;
 }
 
 export type EsIssueCode =
@@ -97,9 +99,9 @@ export interface EsIssue {
   code: EsIssueCode;
   severity: EsIssueSeverity;
   message: string;
-  sentence?: string;
-  targetRange?: TextRange;
-  relatedClaimIds?: string[];
+  sentence: string | null;
+  targetRange: TextRange | null;
+  relatedClaimIds: string[];
 }
 
 export type QuestionCoverage = "ANSWERED" | "PARTIALLY_ANSWERED" | "NOT_ANSWERED";
@@ -114,14 +116,14 @@ export interface EsAiComment {
   category: EsAiCommentCategory;
   message: string;
   severity: EsIssueSeverity;
-  targetRange?: TextRange;
+  targetRange: TextRange | null;
   evidence: ClaimEvidence[];
 }
 
 export interface EsAnalysis {
   id: string;
   esDocumentId: string;
-  revisionId?: string;
+  revisionId: string | null;
   sourceKind: "ORIGINAL" | "REVISION";
   freshness: ResultFreshness;
   characterCount: number;
@@ -154,13 +156,15 @@ export interface RevisionChange {
 export interface EsRevision {
   id: string;
   esDocumentId: string;
-  basedOnAnalysisId?: string;
+  basedOnAnalysisId: string;
   freshness: ResultFreshness;
   revisedText: string;
+  usedExperienceIds: string[];
+  usedSessionReportIds: string[];
   characterCount: number;
   changes: RevisionChange[];
   unsupportedClaims: EsClaim[];
-  verificationAnalysisId?: string;
+  verificationAnalysisId: string | null;
   createdAt: string;
 }
 
