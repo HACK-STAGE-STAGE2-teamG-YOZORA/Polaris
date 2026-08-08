@@ -16,6 +16,7 @@ import { Constellation } from "@/app/components/Constellation";
 import { HomeAxisRow } from "@/app/components/home/HomeAxisRow";
 import { HomeEsList } from "@/app/components/home/HomeEsList";
 import { HomeSessionEntry } from "@/app/components/home/HomeSessionEntry";
+import { HomeTutorialHints } from "@/app/components/tutorial/HomeTutorialHints";
 import { EXPERIENCES_PATH, SYSTEM_STATUS_PATH } from "@/shared/routes";
 import { AXIS_ORDER } from "@/shared/self-analysis/axis-labels";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
@@ -88,6 +89,7 @@ export default function HomePage() {
         background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
       }}
     >
+      <HomeTutorialHints />
       <Box sx={{ width: "100%", maxWidth: 560, mx: "auto", px: 2, pt: 3 }}>
         <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
           <Typography

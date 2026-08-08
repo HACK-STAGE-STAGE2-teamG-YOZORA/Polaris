@@ -21,6 +21,7 @@ import { StartModeChoice } from "./components/StartModeChoice";
 import { useAnalysisChat } from "./use-analysis-chat";
 import type { InitialStartAction } from "./use-analysis-chat";
 import { SessionReportDialog } from "@/app/components/SessionReportDialog";
+import { ChatTutorialHints } from "@/app/components/tutorial/ChatTutorialHints";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 
 // 画面全体の背景。ローディング時と本体で同じ見た目にするために切り出す
@@ -154,6 +155,11 @@ function AnalysisChatContent() {
 
   return (
     <ChatBackground>
+      <ChatTutorialHints
+        loadingResumable={loadingResumable}
+        showPicker={showPicker}
+        session={session}
+      />
       <Stack spacing={2}>
         <Typography
           variant="h6"

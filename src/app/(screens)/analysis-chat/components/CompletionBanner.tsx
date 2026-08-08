@@ -85,6 +85,7 @@ export function CompletionBanner({
             onClick={onGenerateResult}
             disabled={generatingResult}
             startIcon={generatingResult ? <CircularProgress size={16} color="inherit" /> : undefined}
+            data-tutorial="generate-result-button"
             sx={{
               bgcolor: CHAT_COLORS.orange,
               color: CHAT_COLORS.bubbleText,

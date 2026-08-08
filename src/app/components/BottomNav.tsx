@@ -58,11 +58,12 @@ function UserIcon(props: SvgIconProps) {
 }
 
 const NAV_ITEMS = [
-  { label: "Home", href: HOME_PATH, icon: HomeIcon },
-  { label: "Chat", href: ANALYSIS_CHAT_PATH, icon: ChatIcon },
-  { label: "Cards", href: EXPERIENCES_PATH, icon: CardsIcon },
-  { label: "Review", href: ES_REVISION_PATH, icon: ReviewIcon },
-  { label: "User", href: ACCOUNT_PATH, icon: UserIcon },
+  { label: "Home", href: HOME_PATH, icon: HomeIcon, tutorialId: undefined },
+  // data-tutorial: 初回チュートリアルがChatタブをスポットライトで強調するための目印
+  { label: "Chat", href: ANALYSIS_CHAT_PATH, icon: ChatIcon, tutorialId: "nav-chat-tab" },
+  { label: "Cards", href: EXPERIENCES_PATH, icon: CardsIcon, tutorialId: undefined },
+  { label: "Review", href: ES_REVISION_PATH, icon: ReviewIcon, tutorialId: undefined },
+  { label: "User", href: ACCOUNT_PATH, icon: UserIcon, tutorialId: undefined },
 ] as const;
 
 // アプリ共通の下部ナビゲーション。layout.tsxからだけ呼び出し、
@@ -109,6 +110,7 @@ export function BottomNav() {
             value={item.href}
             label={item.label}
             icon={<item.icon />}
+            data-tutorial={item.tutorialId}
           />
         ))}
       </BottomNavigation>

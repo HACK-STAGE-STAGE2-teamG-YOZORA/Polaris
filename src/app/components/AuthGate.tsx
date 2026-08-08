@@ -7,6 +7,7 @@ import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
 
 import { BottomNav } from "@/app/components/BottomNav";
+import { TutorialProvider } from "@/app/components/tutorial/TutorialProvider";
 import { apiGet } from "@/lib/api/client";
 import { HOME_PATH, LOGIN_PATH, isPublicPath } from "@/shared/routes";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
@@ -87,8 +88,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <AuthUserContext.Provider value={user}>
-      {children}
-      {status === "authenticated" && <BottomNav />}
+      <TutorialProvider userId={status === "authenticated" ? (user?.id ?? null) : null}>
+        {children}
+        {status === "authenticated" && <BottomNav />}
+      </TutorialProvider>
     </AuthUserContext.Provider>
   );
 }

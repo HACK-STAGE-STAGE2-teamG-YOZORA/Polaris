@@ -45,6 +45,7 @@ export function SessionStartForm({ submitting, fieldErrors, onSubmit }: SessionS
           helperText={fieldErrors.title}
           fullWidth
           disabled={submitting}
+          slotProps={{ htmlInput: { "data-tutorial": "session-title-input" } }}
           sx={inputSx}
         />
         <Button
@@ -52,6 +53,7 @@ export function SessionStartForm({ submitting, fieldErrors, onSubmit }: SessionS
           disabled={submitting}
           onClick={() => onSubmit(title)}
           startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
+          data-tutorial="session-start-button"
           sx={{
             bgcolor: CHAT_COLORS.orange,
             color: CHAT_COLORS.bubbleText,

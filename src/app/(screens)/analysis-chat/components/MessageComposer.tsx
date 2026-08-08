@@ -55,7 +55,7 @@ export function MessageComposer({
     <Stack spacing={0.5}>
       <Stack direction="row" spacing={1} sx={{ alignItems: "flex-end" }}>
         <TextField
-          placeholder="回答を入力"
+          placeholder="経験を入力"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
@@ -64,6 +64,7 @@ export function MessageComposer({
           maxRows={4}
           fullWidth
           disabled={disabled}
+          slotProps={{ htmlInput: { "data-tutorial": "message-composer-input" } }}
           sx={{
             "& .MuiOutlinedInput-root": {
               bgcolor: CHAT_COLORS.userBubble,
