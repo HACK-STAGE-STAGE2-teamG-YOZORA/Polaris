@@ -138,7 +138,7 @@ export default function HomePage() {
   const profile = dashboard?.overallProfile;
 
   return (
-    <Box component="main" sx={{ minHeight: "100dvh", pb: "72px", color: CHAT_COLORS.textOnDark, background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, #061C2B 46%, #075685 100%)` }}>
+    <Box component="main" sx={{ minHeight: "100dvh", pb: "72px", color: CHAT_COLORS.textOnDark, background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)` }}>
       <Box sx={{ width: "100%", maxWidth: 560, mx: "auto", px: 2, pt: 3 }}>
         <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
           <Typography component="h1" sx={{ mt: 0.5, fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 46, fontWeight: 400, letterSpacing: "-0.04em" }}>polaris</Typography>
