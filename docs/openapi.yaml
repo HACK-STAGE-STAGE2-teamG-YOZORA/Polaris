@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Polaris API
-  version: 0.4.0
+  version: 0.5.0
   summary: 根拠付き自己分析とES推敲を行うローカルWebアプリのAPI契約
   description: |
     Polaris MVPのフロントエンドとバックエンド間の契約。
@@ -40,6 +40,8 @@ tags:
     description: 応募企業と根拠付き企業情報
   - name: Recommendations
     description: 登録済み候補企業の公式情報を取得して行う根拠付き提案
+  - name: Interview
+    description: 確認済み経験と任意の公式企業情報に基づく面接準備
   - name: ES
     description: ES文書、検査、推敲、再検査
 
@@ -820,6 +822,41 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/v1/interview-questions/generate:
+    post:
+      tags: [Interview]
+      operationId: generateInterviewQuestions
+      x-priority: P1
+      summary: 確認済み経験の深掘り質問と根拠付き逆質問を生成する
+      description: |
+        深掘り質問は確認済み経験IDへ、企業指定時の逆質問は対象企業の公式出典IDへ接続する。
+        ESを指定した場合は曖昧な役割・判断・成果の確認を優先する。結果は保存せず同期的に返す。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateInterviewQuestionsRequest'
+      responses:
+        '200':
+          description: 面接用の深掘り質問と逆質問
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterviewQuestionSet'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationOrAiInputTooLarge'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
   /api/v1/es-text-extractions:
     post:
       tags: [ES]
@@ -1201,6 +1238,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     AiInvalidOutput:
       description: AI出力が契約スキーマまたはドメイン規則に適合せず、再試行後も採用できなかった
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationOrAiInputTooLarge:
+      description: 入力形式違反、業務ルール違反、またはAIコンテキスト上限内へ安全に縮約できない入力
       content:
         application/problem+json:
           schema:
@@ -2704,6 +2747,134 @@ components:
           type: string
           format: date-time
 
+    GenerateInterviewQuestionsRequest:
+      type: object
+      properties:
+        selfAnalysisReportId:
+          type: string
+          format: uuid
+          description: 省略時は最新かつ古くない自己分析レポートを使用する。
+        experienceIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          description: 省略時は確認済み経験を新しい順に最大20件使用する。
+          items:
+            type: string
+            format: uuid
+        companyId:
+          description: 逆質問の対象企業。省略時はESに紐づく企業を使用し、どちらもなければ一般逆質問を生成する。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        esDocumentId:
+          description: 深掘り対象にする任意のES文書。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        targetRole:
+          anyOf:
+            - type: string
+              maxLength: 300
+            - type: 'null'
+        deepDiveCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+        reverseQuestionCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+
+    InterviewDeepDiveQuestion:
+      type: object
+      required: [question, purpose, connectedExperienceIds]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        purpose:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        connectedExperienceIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+
+    InterviewReverseQuestion:
+      type: object
+      required: [question, purpose, companySourceIds]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        purpose:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        companySourceIds:
+          type: array
+          uniqueItems: true
+          description: 企業未指定の一般逆質問では空配列。
+          items:
+            type: string
+            format: uuid
+
+    InterviewQuestionSet:
+      type: object
+      required:
+        - selfAnalysisReportId
+        - companyId
+        - esDocumentId
+        - targetRole
+        - deepDiveQuestions
+        - reverseQuestions
+        - generatedAt
+      properties:
+        selfAnalysisReportId:
+          type: string
+          format: uuid
+        companyId:
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        esDocumentId:
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        targetRole:
+          anyOf:
+            - type: string
+            - type: 'null'
+        deepDiveQuestions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/InterviewDeepDiveQuestion'
+        reverseQuestions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/InterviewReverseQuestion'
+        generatedAt:
+          type: string
+          format: date-time
+
     EsDocumentStatus:
       type: string
       enum: [DRAFT, ANALYZED, REVISED, VERIFIED]
@@ -3230,6 +3401,7 @@ components:
             - AI_UNAVAILABLE
             - AI_TIMEOUT
             - AI_INVALID_OUTPUT
+            - AI_INPUT_TOO_LARGE
             - UNSAFE_URL
             - FETCH_FAILED
             - PAYLOAD_TOO_LARGE

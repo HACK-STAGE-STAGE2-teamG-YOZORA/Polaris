@@ -10,7 +10,7 @@ import {
 import {
   buildChatTurnPrompt,
   buildCompanyFactsPrompt,
-  buildCompanyRecommendationsPrompt,
+  buildInterviewQuestionsPrompt,
   buildExperienceDraftPrompt,
   buildExperienceGroundingPrompt,
   buildEsAnalysisPrompt,
@@ -40,6 +40,13 @@ import {
   stabilizeEsRevisionCandidate,
 } from './es-output.ts';
 import { stabilizeChatTurnCandidate } from './chat-output.ts';
+import {
+  hasBalancedRecommendationSlots,
+  stabilizeCompanyRecommendationsCandidate,
+} from './recommendation-output.ts';
+import { stabilizeCompanyFactsCandidate } from './company-facts-output.ts';
+import { fitCompanyRecommendationsInput } from './recommendation-input.ts';
+import { stabilizeInterviewQuestionsCandidate } from './interview-output.ts';
 import type {
   ChatTurnInput,
   ChatTurnOutput,
@@ -47,6 +54,8 @@ import type {
   CompanyFactsOutput,
   CompanyRecommendationsInput,
   CompanyRecommendationsOutput,
+  InterviewQuestionsInput,
+  InterviewQuestionsOutput,
   ExperienceDraftInput,
   ExperienceDraftOutput,
   ExperienceGroundingField,
@@ -582,6 +591,9 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
         temperature: this.#config.structuredTemperature,
         maxTokens: this.#config.taskMaxTokens,
         timeoutMs: this.#config.taskTimeoutMs,
+        beforeValidation: (value) => {
+          stabilizeCompanyFactsCandidate(value, chunkInput);
+        },
         afterValidation: (value) => {
           for (const fact of value.facts) {
             const exact = recoverExactQuote(chunk, fact.evidenceQuote);
@@ -604,9 +616,13 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
   }
 
   async recommendCompanies(input: CompanyRecommendationsInput): Promise<CompanyRecommendationsOutput> {
-    const prompt = buildCompanyRecommendationsPrompt(input);
-    const companyById = new Map(input.companies.map((company) => [company.id, company]));
-    const experienceIds = new Set(input.confirmedExperiences.map((experience) => experience.id));
+    const budgeted = fitCompanyRecommendationsInput(
+      input,
+      this.#promptBudget(this.#config.taskMaxTokens),
+    );
+    const prompt = budgeted.prompt;
+    const companyById = new Map(budgeted.input.companies.map((company) => [company.id, company]));
+    const experienceIds = new Set(budgeted.input.confirmedExperiences.map((experience) => experience.id));
 
     return this.#runStructuredTask<CompanyRecommendationsOutput>({
       schemaFileName: 'company-recommendations-output.schema.json',
@@ -618,13 +634,16 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       customizeGenerationSchema: (schema) => {
         const recommendationProperties = schema.properties.recommendations.items.properties;
         const excludedProperties = schema.properties.excludedCompanies.items.properties;
-        const companyIds = input.companies.map((company) => company.id);
+        const companyIds = budgeted.input.companies.map((company) => company.id);
         recommendationProperties.companyId.enum = companyIds;
         excludedProperties.companyId.enum = companyIds;
         recommendationProperties.connectedExperienceIds.items.enum = [...experienceIds];
-        recommendationProperties.companySourceIds.items.enum = input.companies.flatMap(
+        recommendationProperties.companySourceIds.items.enum = budgeted.input.companies.flatMap(
           (company) => company.sources.map((source) => source.id),
         );
+      },
+      beforeValidation: (output) => {
+        stabilizeCompanyRecommendationsCandidate(output, budgeted.input);
       },
       afterValidation: (output) => {
         const recommendationCompanyIds = output.recommendations.map((item) => item.companyId);
@@ -637,6 +656,9 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
         }
         if (excludedCompanyIds.some((id) => recommendationCompanyIds.includes(id))) {
           throw new Error('同じ企業を提案と除外の両方へ含めることはできません。');
+        }
+        if (!hasBalancedRecommendationSlots(output.recommendations)) {
+          throw new Error('企業提案が同一枠へ偏っています。本命・挑戦・意外の枠を分散してください。');
         }
         for (const recommendation of output.recommendations) {
           const company = companyById.get(recommendation.companyId);
@@ -654,6 +676,58 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
             throw new Error(`候補外の除外企業IDです: ${excluded.companyId}`);
           }
         }
+      },
+    });
+  }
+
+  async generateInterviewQuestions(input: InterviewQuestionsInput): Promise<InterviewQuestionsOutput> {
+    const query = [
+      input.targetRole,
+      input.esDocument?.question,
+      input.esDocument?.text,
+      input.selfAnalysisReport.summary,
+    ].filter(Boolean).join('\n');
+    const prepared = structuredClone(input);
+    prepared.confirmedExperiences.sort(
+      (left, right) => relevanceScore(query, left) - relevanceScore(query, right),
+    );
+    prepared.company?.sources.forEach((source) => {
+      source.facts.sort((left, right) => relevanceScore(query, left) - relevanceScore(query, right));
+    });
+    const budgeted = fitInputByDropping(
+      prepared,
+      buildInterviewQuestionsPrompt,
+      this.#promptBudget(this.#config.taskMaxTokens),
+      [
+        (candidate) => {
+          const source = candidate.company?.sources.find((item) => item.facts.length > 1);
+          return source ? Boolean(source.facts.shift()) : false;
+        },
+        (candidate) => candidate.company !== null && candidate.company.sources.length > 1
+          ? Boolean(candidate.company.sources.shift())
+          : false,
+        (candidate) => candidate.confirmedExperiences.length > 1
+          ? Boolean(candidate.confirmedExperiences.shift())
+          : false,
+      ],
+    );
+    const prompt = budgeted.prompt;
+    const experienceIds = budgeted.input.confirmedExperiences.map((experience) => experience.id);
+    const sourceIds = budgeted.input.company?.sources.map((source) => source.id) ?? [];
+
+    return this.#runStructuredTask<InterviewQuestionsOutput>({
+      schemaFileName: 'interview-questions-output.schema.json',
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        schema.properties.deepDiveQuestions.items.properties.connectedExperienceIds.items.enum = experienceIds;
+        schema.properties.reverseQuestions.items.properties.companySourceIds.items.enum = sourceIds;
+      },
+      beforeValidation: (output) => {
+        stabilizeInterviewQuestionsCandidate(output, budgeted.input);
       },
     });
   }

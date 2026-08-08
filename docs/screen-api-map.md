@@ -18,6 +18,7 @@
 | ES完成版 | そのまま提出可能な品質を目標にしたES案と、その下の根拠状態・問題箇所・改善理由コメントを表示 | `POST /es-documents/{id}/revisions`, `POST /es-revisions/{id}/verify` | P0 |
 | Googleログイン | Google認証、新規登録、ログアウト | P1着手時に認証APIを追加 | P1 |
 | 企業提案 | 登録企業の公式情報に基づく本命／挑戦／意外枠 | `POST /company-recommendation-runs`, `GET /company-recommendation-runs/{id}` | P1 |
+| 面接準備 | 確認済み経験の深掘り質問と、公式企業情報に基づく逆質問 | `POST /interview-questions/generate` | P1 |
 
 パス表記では共通の`/api/v1`を省略している。
 

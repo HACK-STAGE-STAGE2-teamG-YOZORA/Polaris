@@ -335,9 +335,56 @@ type CompanyRecommendationsInput = {
 - `companySourceIds`が対象企業の`OFFICIAL`出典に存在する。
 - URL取得失敗または公式事実0件の企業を提案対象から除外する。
 - `rank`、結果ID、日時はサーバーで付与する。
-- 同一企業の重複と、同一枠への偏りを検査する。
+- 同一企業の重複と、同一枠への偏りを検査する。2件なら異なる枠、3件以上なら本命・挑戦・意外の3枠をすべて必須とする。
+- コンテキスト超過時は候補企業を維持し、関連度の低い追加事実、追加出典、追加経験の順で除外する。企業事実と引用は途中で切らず、最小構成でも超過する場合は`AI_INPUT_TOO_LARGE`とする。
 
-## 10. ES検査
+## 10. 面接深掘り質問・逆質問
+
+### 入力
+
+```typescript
+type InterviewQuestionsInput = {
+  selfAnalysisReport: SelfAnalysisReport;
+  confirmedExperiences: Experience[];
+  company: {
+    id: string;
+    name: string;
+    targetRole: string | null;
+    sources: Array<{
+      id: string;
+      facts: CompanyFact[];
+    }>;
+  } | null;
+  esDocument: { id: string; question: string; text: string } | null;
+  targetRole: string | null;
+  deepDiveCount: number;
+  reverseQuestionCount: number;
+};
+```
+
+### 出力
+
+`contracts/ai/interview-questions-output.schema.json`
+
+### AIの責任
+
+- 深掘り質問を確認済み経験へ接続し、役割・判断・行動・成果を一問ずつ確認する。
+- ES指定時は、ES内の曖昧な役割・判断・成果を優先して質問する。
+- 企業指定時の逆質問は公式企業情報だけを前提とし、対象出典IDを付ける。
+- 企業未指定時の逆質問は、自己分析上の希望条件と職種を確認する一般質問に限定する。
+- 適性、能力、内定可能性を数値化または断定しない。
+
+### バックエンドの再検証
+
+- `connectedExperienceIds`を入力した確認済み経験へ限定する。
+- `companySourceIds`を対象企業の公式出典へ限定する。
+- 企業未指定時の逆質問は`companySourceIds`を空配列に限定する。
+- 根拠IDが残らない質問、候補外ID、重複質問、余分な属性を除去する。
+- 質問数をリクエストした1〜10件の範囲へ制限する。
+- 結果はP1では永続化せず、レスポンスへ生成日時と使用コンテキストIDを付ける。
+- コンテキスト超過時は関連度の低い追加事実、追加出典、追加経験を除外する。事実と引用は途中で切らず、最小構成でも超過する場合は`AI_INPUT_TOO_LARGE`とする。
+
+## 11. ES検査
 
 ### 入力
 
@@ -389,7 +436,7 @@ ES分析出力は本文中に実在する主張だけを保持する。根拠は
 - `preferredExperienceIds`は優先ヒントであり、それ以外の確認済み経験を候補集合から除外しない。
 - セッションレポートと総合プロフィールは表現方針にのみ使い、数字・役割・成果の事実根拠にしない。
 
-## 11. ES完成版生成
+## 12. ES完成版生成
 
 ### 入力
 
@@ -429,7 +476,7 @@ type EsRevisionInput = EsAnalysisInput & {
 - 設問回答、文字数、全主張の根拠を満たす場合だけ`READY_TO_SUBMIT`とし、それ以外は`NEEDS_REVIEW`とする。
 - 主張抽出が0件の場合は空集合を「全主張確認済み」と扱わず、`NEEDS_REVIEW`として再検査を促す。
 
-## 12. エラー変換
+## 13. エラー変換
 
 | AI Adapter内の失敗 | APIコード | retryable |
 |---|---|---:|
