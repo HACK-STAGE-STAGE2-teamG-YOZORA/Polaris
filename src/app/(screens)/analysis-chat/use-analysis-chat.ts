@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
+  confirmExperience,
   createAnalysisSession,
+  createExperienceDraft,
+  finalizeAnalysisSession,
+  generateAxisAssessments,
   getCurrentAnalysisSession,
   listAnalysisMessages,
+  listAxisAssessments,
+  recomputeOverallSelfAnalysis,
+  reviewAxisAssessment,
   sendAnalysisMessage,
 } from "@/lib/api/analysis-sessions";
 import { ApiError } from "@/lib/api/errors";
@@ -43,6 +50,10 @@ interface UseAnalysisChatState {
   startingSession: boolean;
   loadingMessages: boolean;
   sending: boolean;
+  generatingResult: boolean;
+  assessments: any[];
+  loadingAssessments: boolean;
+  finalizingSession: boolean;
   error: ChatFormError | null;
 }
 
@@ -59,6 +70,10 @@ const initialState: UseAnalysisChatState = {
   startingSession: false,
   loadingMessages: false,
   sending: false,
+  generatingResult: false,
+  assessments: [],
+  loadingAssessments: false,
+  finalizingSession: false,
   error: null,
 };
 
@@ -259,11 +274,134 @@ export function useAnalysisChat() {
     [state.session],
   );
 
+  // 軸分析一覧を取得する
+  const fetchAssessments = useCallback(async (sessionId: string) => {
+    setState((prev) => ({ ...prev, loadingAssessments: true }));
+    try {
+      const res = await listAxisAssessments(sessionId);
+      setState((prev) => ({ ...prev, assessments: res.items, loadingAssessments: false }));
+    } catch {
+      setState((prev) => ({ ...prev, loadingAssessments: false }));
+    }
+  }, []);
+
+  // 「この内容で結果を見る」を押した際の結果生成
+  const generateResult = useCallback(async (): Promise<boolean> => {
+    const session = state.session;
+    if (!session) return false;
+
+    setState((prev) => ({ ...prev, generatingResult: true, error: null }));
+    try {
+      // 確認済み体験カードが0件の場合、これまでの会話メッセージから体験カード案を作成して確定(CONFIRMED)にする
+      if (session.progress.confirmedExperienceCount === 0 && state.messages.length > 0) {
+        const userMsgIds = state.messages.filter((m) => m.role === "USER").map((m) => m.id);
+        if (userMsgIds.length > 0) {
+          try {
+            // 体験カード案を作成
+            const draft = await createExperienceDraft(session.id, "ENGAGED", userMsgIds);
+            // 本人確認済み(CONFIRMED)にする
+            if (draft?.id) {
+              await confirmExperience(draft.id);
+            }
+          } catch (e) {
+            // 体験カード自動抽出で例外が発生しても軸分析処理は続行
+            console.warn("Auto experience extraction warning:", e);
+          }
+        }
+      }
+
+      const res = await generateAxisAssessments(session.id);
+      setState((prev) => {
+        if (!prev.session) return prev;
+        return {
+          ...prev,
+          generatingResult: false,
+          assessments: res.items ?? [],
+          session: {
+            ...prev.session,
+            status: "READY_TO_FINALIZE",
+            progress: {
+              ...prev.session.progress,
+              confirmedExperienceCount: Math.max(1, prev.session.progress.confirmedExperienceCount),
+            },
+          },
+        };
+      });
+      // 生成された軸評価一覧を取得
+      void fetchAssessments(session.id);
+      return true;
+    } catch (err) {
+      setState((prev) => ({ ...prev, generatingResult: false, error: toFormError(err) }));
+      return false;
+    }
+  }, [state.session, state.messages, fetchAssessments]);
+
+  // セッションを復元・初期読み込みした際にすでにREADY_TO_FINALIZEなら軸データ取得
+  useEffect(() => {
+    if (state.session?.id && (state.session.status === "READY_TO_FINALIZE" || state.session.status === "COMPLETED")) {
+      void fetchAssessments(state.session.id);
+    }
+  }, [state.session?.id, state.session?.status, fetchAssessments]);
+
+  // 各軸に対するユーザーのレビュー（MATCHES等）
+  const reviewAssessment = useCallback(
+    async (
+      id: string,
+      assessment: "MATCHES" | "PARTIALLY_MATCHES" | "DOES_NOT_MATCH" | "NEEDS_EXPLORATION",
+    ) => {
+      try {
+        await reviewAxisAssessment(id, assessment);
+        if (state.session?.id) {
+          void fetchAssessments(state.session.id);
+        }
+      } catch (err) {
+        setState((prev) => ({ ...prev, error: toFormError(err) }));
+      }
+    },
+    [state.session?.id, fetchAssessments],
+  );
+
+  // セッションを確定し、総合結果を計算してホームへ移動できるようにする
+  const finalizeSession = useCallback(async (): Promise<boolean> => {
+    const session = state.session;
+    if (!session) return false;
+
+    setState((prev) => ({ ...prev, finalizingSession: true, error: null }));
+    try {
+      // 軸のレビューが未実施の項目があれば、自動的に全軸 MATCHES で一括レビュー
+      if (state.assessments && state.assessments.length > 0) {
+        for (const item of state.assessments) {
+          if (item.userAssessment === "UNREVIEWED") {
+            await reviewAxisAssessment(item.id, "MATCHES");
+          }
+        }
+      }
+
+      await finalizeAnalysisSession(session.id);
+      // ホーム画面の表示用の総合自己分析を再計算
+      await recomputeOverallSelfAnalysis().catch(() => null);
+
+      setState((prev) => ({
+        ...prev,
+        finalizingSession: false,
+        session: prev.session ? { ...prev.session, status: "COMPLETED" } : null,
+      }));
+      return true;
+    } catch (err) {
+      setState((prev) => ({ ...prev, finalizingSession: false, error: toFormError(err) }));
+      return false;
+    }
+  }, [state.session, state.assessments]);
+
   return {
     ...state,
     resumeCurrentSession,
     chooseStartNew,
     startSession,
     sendMessage,
+    generateResult,
+    fetchAssessments,
+    reviewAssessment,
+    finalizeSession,
   };
 }

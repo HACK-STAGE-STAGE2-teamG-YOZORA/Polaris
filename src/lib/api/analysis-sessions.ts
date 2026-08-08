@@ -1,7 +1,7 @@
 // docs/openapi.yaml の /api/v1/analysis-sessions 系エンドポイントに対応するAPIクライアント関数群。
 // HTTP呼び出しの詳細（パス組み立て、fetchラッパーの利用）をここに閉じ込め、
 // 呼び出し側（use-analysis-chat.ts）はドメイン用語の関数として使う。
-import { apiGet, apiPost } from "@/lib/api/client";
+import { apiGet, apiPatch, apiPost } from "@/lib/api/client";
 import type {
   AnalysisSession,
   ChatTurnResponse,
@@ -50,4 +50,49 @@ export function sendAnalysisMessage(
   body: SendMessageRequest,
 ): Promise<ChatTurnResponse> {
   return apiPost<ChatTurnResponse>(`/analysis-sessions/${sessionId}/messages`, body);
+}
+
+// POST /api/v1/analysis-sessions/{sessionId}/axis-assessments/generate — チャット内容から4軸分析を生成する
+export function generateAxisAssessments(sessionId: string): Promise<{ items: unknown[] }> {
+  return apiPost<{ items: unknown[] }>(`/analysis-sessions/${sessionId}/axis-assessments/generate`);
+}
+
+// GET /api/v1/axis-assessments — 軸分析結果を取得する
+export function listAxisAssessments(sessionId: string): Promise<{ items: any[] }> {
+  return apiGet<{ items: any[] }>(`/axis-assessments?sessionId=${sessionId}`);
+}
+
+// PATCH /api/v1/axis-assessments/{id} — 4軸分析を評価する
+export function reviewAxisAssessment(
+  id: string,
+  assessment: "MATCHES" | "PARTIALLY_MATCHES" | "DOES_NOT_MATCH" | "NEEDS_EXPLORATION",
+): Promise<unknown> {
+  return apiPatch<unknown>(`/axis-assessments/${id}`, { assessment });
+}
+
+// POST /api/v1/analysis-sessions/{sessionId}/finalize — チャットを終了・確定する
+export function finalizeAnalysisSession(sessionId: string): Promise<unknown> {
+  return apiPost<unknown>(`/analysis-sessions/${sessionId}/finalize`);
+}
+
+// POST /api/v1/analysis-sessions/{sessionId}/experience-drafts — 会話から体験カード案を抽出する
+export function createExperienceDraft(
+  sessionId: string,
+  experienceType: string,
+  messageIds: string[],
+): Promise<{ id: string }> {
+  return apiPost<{ id: string }>(`/analysis-sessions/${sessionId}/experience-drafts`, {
+    experienceType,
+    messageIds,
+  });
+}
+
+// PATCH /api/v1/experiences/{experienceId} — 体験カードを確定(CONFIRMED)にする
+export function confirmExperience(experienceId: string): Promise<unknown> {
+  return apiPatch<unknown>(`/experiences/${experienceId}`, { status: "CONFIRMED" });
+}
+
+// POST /api/v1/overall-self-analysis/recompute — 総合自己分析プロファイルを再計算する
+export function recomputeOverallSelfAnalysis(): Promise<unknown> {
+  return apiPost<unknown>("/overall-self-analysis/recompute");
 }
