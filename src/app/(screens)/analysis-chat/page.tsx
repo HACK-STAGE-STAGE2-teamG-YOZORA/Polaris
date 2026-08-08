@@ -15,10 +15,12 @@ import { ExperienceDraftPanel } from "./components/ExperienceDraftPanel";
 import { MessageComposer } from "./components/MessageComposer";
 import { MessageList } from "./components/MessageList";
 import { ProgressBadge } from "./components/ProgressBadge";
+import { SessionResultReveal } from "./components/SessionResultReveal";
 import { SessionStartForm } from "./components/SessionStartForm";
 import { StartModeChoice } from "./components/StartModeChoice";
 import { useAnalysisChat } from "./use-analysis-chat";
 import type { InitialStartAction } from "./use-analysis-chat";
+import { SessionReportDialog } from "@/app/components/SessionReportDialog";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 
 // 画面全体の背景。ローディング時と本体で同じ見た目にするために切り出す
@@ -84,6 +86,7 @@ function AnalysisChatContent() {
   const {
     loadingResumable,
     resumableSessions,
+    otherSessions,
     showNewSessionForm,
     session,
     messages,
@@ -121,6 +124,8 @@ function AnalysisChatContent() {
 
   // 送信中の入力内容はこの画面だけのUI状態なので、フックではなくここで持つ
   const [draftContent, setDraftContent] = useState("");
+  // 完了済みセッション一覧から「結果を見る」で開くダイアログの対象
+  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
 
   const handleStartSession = useCallback(
     (title: string) => {
@@ -167,7 +172,9 @@ function AnalysisChatContent() {
         {showPicker && (
           <StartModeChoice
             resumableSessions={resumableSessions}
+            otherSessions={otherSessions}
             onResume={(sessionId) => void resumeSession(sessionId)}
+            onViewResult={setViewingSessionId}
             onStartNew={chooseStartNew}
             busy={loadingMessages}
           />
@@ -176,13 +183,13 @@ function AnalysisChatContent() {
         {/* 一覧が0件、または「初めから」を選んだ場合の新規セッション作成フォーム。startModeは常にSTART_NEW */}
         {showStartForm && (
           <>
-            {resumableSessions.length > 0 && (
+            {(resumableSessions.length > 0 || otherSessions.length > 0) && (
               <Button
                 onClick={backToSessionList}
                 size="small"
                 sx={{ alignSelf: "flex-start", color: CHAT_COLORS.textOnDarkMuted }}
               >
-                ← 進行中のセッション一覧に戻る
+                ← セッション一覧に戻る
               </Button>
             )}
             <SessionStartForm
@@ -210,73 +217,85 @@ function AnalysisChatContent() {
               experienceReady={experienceReady}
             />
 
-            {/* completionIntent=SUGGESTED、またはcanGenerateResult=trueのときだけ表示する終了案内 */}
-            <CompletionBanner
-              completionIntent={completionIntent}
-              canGenerateResult={session.progress.canGenerateResult}
-              onGenerateResult={() => void generateResult()}
-              generatingResult={generatingResult}
-              sessionStatus={session.status}
-              confirmedExperienceCount={session.progress.confirmedExperienceCount}
-              missingAxes={missingAxes}
-            />
-
-            {/* 生成済みの4軸結果と本人評価。4軸すべて評価するまで確定できない */}
-            {assessments.length > 0 && (
-              <AxisAssessmentReview
-                assessments={assessments}
-                reviewingAxisId={reviewingAxisId}
-                onReview={(id, assessment) => void reviewAssessment(id, assessment)}
-                unreviewedCount={unreviewedAxes.length}
-                hasStaleAssessment={hasStaleAssessment}
-                canFinalize={canFinalize}
-                onFinalize={() => void finalizeSession()}
-                finalizing={finalizingSession}
-                onRegenerate={() => void generateResult()}
-                regenerating={generatingResult}
-                completed={completed}
-                recomputeFailed={recomputeFailed}
-              />
-            )}
-
-            {loadingMessages ? (
-              <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
-                <CircularProgress size={24} sx={{ color: CHAT_COLORS.orange }} />
-              </Box>
+            {completed ? (
+              // 確定済みセッションは、結果を大きく見せるカードを主役にする
+              // （終了案内・4択評価バナーは確定前の操作用なのでここでは出さない）
+              <SessionResultReveal sessionId={session.id} />
             ) : (
-              <MessageList messages={messages} />
-            )}
+              <>
+                {loadingMessages ? (
+                  <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+                    <CircularProgress size={24} sx={{ color: CHAT_COLORS.orange }} />
+                  </Box>
+                ) : (
+                  <MessageList messages={messages} />
+                )}
 
-            {/* 経験カード確認: AIの案は必ずDRAFTで、本人が確認して初めて正式根拠になる。
-                入力欄のすぐ上に置き、長い会話でも上までスクロールせず操作できるようにする */}
-            {!completed && (
-              <ExperienceDraftPanel
-                experienceReady={experienceReady}
-                confirmedExperienceCount={session.progress.confirmedExperienceCount}
-                draftExperience={draftExperience}
-                creatingDraft={creatingDraft}
-                savingDraft={savingDraft}
-                notice={draftNotice}
-                hasUserMessage={session.progress.userMessageCount > 0}
-                onCreateDraft={(experienceType) => void createDraft(experienceType)}
-                onSaveDraft={(body) => void saveDraft(body)}
-                onDismissDraft={dismissDraft}
-              />
-            )}
+                {/* 終了案内・4軸結果と本人評価は、メッセージ履歴のすぐ下(入力欄の近く)に置く。
+                    以前は画面上部に固定されていたため、会話が伸びるほど一番上まで
+                    スクロールしないと見えなかった */}
+                <CompletionBanner
+                  completionIntent={completionIntent}
+                  canGenerateResult={session.progress.canGenerateResult}
+                  onGenerateResult={() => void generateResult()}
+                  generatingResult={generatingResult}
+                  sessionStatus={session.status}
+                  confirmedExperienceCount={session.progress.confirmedExperienceCount}
+                  missingAxes={missingAxes}
+                />
 
-            {/* 確定後のセッションへは追記できない */}
-            {!completed && (
-              <MessageComposer
-                value={draftContent}
-                onChange={setDraftContent}
-                onSubmit={handleSendMessage}
-                disabled={sending}
-                fieldError={error?.fieldErrors.content}
-              />
+                {assessments.length > 0 && (
+                  <AxisAssessmentReview
+                    assessments={assessments}
+                    reviewingAxisId={reviewingAxisId}
+                    onReview={(id, assessment) => void reviewAssessment(id, assessment)}
+                    unreviewedCount={unreviewedAxes.length}
+                    hasStaleAssessment={hasStaleAssessment}
+                    canFinalize={canFinalize}
+                    onFinalize={() => void finalizeSession()}
+                    finalizing={finalizingSession}
+                    onRegenerate={() => void generateResult()}
+                    regenerating={generatingResult}
+                    completed={completed}
+                    recomputeFailed={recomputeFailed}
+                  />
+                )}
+
+                {/* 経験カード確認: AIの案は必ずDRAFTで、本人が確認して初めて正式根拠になる。
+                    入力欄のすぐ上に置き、長い会話でも上までスクロールせず操作できるようにする */}
+                <ExperienceDraftPanel
+                  experienceReady={experienceReady}
+                  confirmedExperienceCount={session.progress.confirmedExperienceCount}
+                  draftExperience={draftExperience}
+                  creatingDraft={creatingDraft}
+                  savingDraft={savingDraft}
+                  notice={draftNotice}
+                  hasUserMessage={session.progress.userMessageCount > 0}
+                  onCreateDraft={(experienceType) => void createDraft(experienceType)}
+                  onSaveDraft={(body) => void saveDraft(body)}
+                  onDismissDraft={dismissDraft}
+                />
+
+                <MessageComposer
+                  value={draftContent}
+                  onChange={setDraftContent}
+                  onSubmit={handleSendMessage}
+                  disabled={sending}
+                  fieldError={error?.fieldErrors.content}
+                />
+              </>
             )}
           </>
         )}
       </Stack>
+
+      {viewingSessionId && (
+        <SessionReportDialog
+          open={viewingSessionId !== null}
+          sessionId={viewingSessionId}
+          onClose={() => setViewingSessionId(null)}
+        />
+      )}
     </ChatBackground>
   );
 }

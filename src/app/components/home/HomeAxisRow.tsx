@@ -1,9 +1,9 @@
 "use client";
 
-import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
+import { AxisPositionBar } from "@/app/components/AxisPositionBar";
 import { AXIS_LABELS, axisPositionToPercent, formatAxisPosition } from "@/shared/self-analysis/axis-labels";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { OverallAxisTrend } from "@/types/dashboard";
@@ -19,45 +19,7 @@ export function HomeAxisRow({ trend }: { trend: OverallAxisTrend }) {
 
   return (
     <Stack spacing={1}>
-      <Box sx={{ display: "grid", gridTemplateColumns: "82px minmax(80px, 1fr) 82px", alignItems: "center", gap: 1 }}>
-        <Box>
-          <Typography sx={{ fontSize: 16, letterSpacing: "0.12em", lineHeight: 1.25 }}>{label.left}</Typography>
-          <Typography sx={{ mt: 0.5, fontSize: 18, lineHeight: 1.25 }}>{label.leftJa}</Typography>
-        </Box>
-        <Box sx={{ position: "relative", height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Box sx={{ width: "100%", height: 4, borderRadius: 999, bgcolor: "rgba(255,255,255,0.92)" }} />
-          {percent !== null ? (
-            <Box
-              sx={{
-                position: "absolute",
-                left: `calc(${percent}% - 11px)`,
-                width: 22,
-                height: 22,
-                borderRadius: "50%",
-                bgcolor: "#F6C95D",
-                boxShadow: "0 1px 5px rgba(0,0,0,.35)",
-              }}
-            />
-          ) : (
-            <Typography
-              sx={{
-                position: "absolute",
-                fontSize: 13,
-                px: 1,
-                borderRadius: 1,
-                bgcolor: "rgba(0,0,0,0.45)",
-                color: CHAT_COLORS.textOnDark,
-              }}
-            >
-              {positionText}
-            </Typography>
-          )}
-        </Box>
-        <Box sx={{ textAlign: "right" }}>
-          <Typography sx={{ fontSize: 16, letterSpacing: "0.12em", lineHeight: 1.25 }}>{label.right}</Typography>
-          <Typography sx={{ mt: 0.5, fontSize: 18, lineHeight: 1.25 }}>{label.rightJa}</Typography>
-        </Box>
-      </Box>
+      <AxisPositionBar label={label} percent={percent} positionText={positionText} />
 
       <Stack spacing={0.25} sx={{ px: 0.5 }}>
         <Typography sx={{ fontSize: 14, lineHeight: 1.7, color: CHAT_COLORS.textOnDark }}>

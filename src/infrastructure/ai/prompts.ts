@@ -63,6 +63,10 @@ const sharedSafetyRules = `
 - 入力に存在しないIDを作らない
 - quoteはUSER発言から一字も言い換えずに抜き出す
 - JSON Schema以外の文章やMarkdownを出力しない
+- summary・statement・comment・descriptionなど人が読む自然文には、UUID等の内部ID、
+  MATCHES・CONFIRMED_PATTERNのようなシステム内部の列挙値、energyChangeのような
+  生の数値フィールドをそのまま書かない。それらはID専用のフィールド（sourceReportIds等）
+  へ入れ、自然文では対象を「その経験」「このセッションの傾向」のように日本語で言い換える
 `;
 
 export function buildChatTurnPrompt(input: ChatTurnInput): {

@@ -87,10 +87,10 @@ export function CompletionBanner({
             startIcon={generatingResult ? <CircularProgress size={16} color="inherit" /> : undefined}
             sx={{
               bgcolor: CHAT_COLORS.orange,
-              color: "#fff",
+              color: CHAT_COLORS.bubbleText,
               fontWeight: 700,
               "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
-              "&.Mui-disabled": { color: CHAT_COLORS.textOnDarkMuted, borderColor: CHAT_COLORS.navyBorder },
+              "&.Mui-disabled": { bgcolor: CHAT_COLORS.orangeMuted, color: CHAT_COLORS.textOnDarkMuted },
             }}
           >
             {generatingResult ? "分析結果を生成中..." : "この内容で結果を見る"}
