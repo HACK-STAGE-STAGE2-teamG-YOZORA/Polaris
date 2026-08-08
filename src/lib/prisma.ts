@@ -3,7 +3,9 @@ import { PrismaPg } from '@prisma/adapter-pg';
 
 function createPrismaClient() {
   const connectionString = process.env.DATABASE_URL!;
-  const adapter = new PrismaPg({ connectionString });
+  const url = new URL(connectionString);
+  const schema = url.searchParams.get('schema') ?? url.searchParams.get('search_path') ?? undefined;
+  const adapter = new PrismaPg({ connectionString }, schema ? { schema } : undefined);
   return new PrismaClient({ adapter });
 }
 

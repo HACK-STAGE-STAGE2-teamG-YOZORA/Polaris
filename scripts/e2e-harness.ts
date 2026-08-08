@@ -121,6 +121,7 @@ function buildE2eDbUrl(schemaName: string): string {
   if (!base) throw new Error("DATABASE_URL が設定されていません。");
   const url = new URL(base);
   url.searchParams.set('schema', schemaName);
+  url.searchParams.set('search_path', schemaName);
   return url.toString();
 }
 
@@ -169,7 +170,8 @@ export async function withE2eServer(
     );
 
     // E2E用スキーマへ接続してセットアップデータを挿入
-    const adapter = new PrismaPg({ connectionString: databaseUrl });
+    const testPool = new pg.Pool({ connectionString: databaseUrl });
+    const adapter = new PrismaPg(testPool, { schema: schemaName });
     const authPrisma = new PrismaClient({ adapter });
     let defaultUserId: string;
     try {
@@ -191,6 +193,7 @@ export async function withE2eServer(
       });
     } finally {
       await authPrisma.$disconnect();
+      await testPool.end();
     }
     if (setup) await setup(databaseUrl, defaultUserId, schemaName);
 

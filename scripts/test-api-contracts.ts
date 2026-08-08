@@ -1,5 +1,6 @@
 import { createCanvas } from '@napi-rs/canvas';
 import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 import { PrismaClient } from '../src/generated/prisma/client.ts';
 import { SESSION_COOKIE_NAME } from '../src/server/auth/config.ts';
 import { sha256Base64Url } from '../src/server/auth/crypto.ts';
@@ -188,7 +189,8 @@ await withE2eServer(async ({ request, schemaName }) => {
   GOOGLE_OAUTH_CLIENT_ID: '',
   GOOGLE_OAUTH_CLIENT_SECRET: '',
 }, async (databaseUrl, _userId, schemaName) => {
-  const adapter = new PrismaPg({ connectionString: databaseUrl });
+  const contractPool = new pg.Pool({ connectionString: databaseUrl });
+  const adapter = new PrismaPg(contractPool, { schema: schemaName });
   const authPrisma = new PrismaClient({ adapter });
   try {
     const user = await authPrisma.user.create({
@@ -208,6 +210,7 @@ await withE2eServer(async ({ request, schemaName }) => {
     });
   } finally {
     await authPrisma.$disconnect();
+    await contractPool.end();
   }
 });
 
