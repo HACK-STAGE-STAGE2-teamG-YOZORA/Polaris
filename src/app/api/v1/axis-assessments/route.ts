@@ -1,11 +1,14 @@
 import { prisma } from '@/lib/prisma';
 import { internalError, problem, SELF_ANALYSIS_AXES } from '@/server/api';
 import { formatAxisAssessment } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 
 const STATUSES = ['CONFIRMED_PATTERN', 'CURRENT_HYPOTHESIS', 'INSUFFICIENT_EVIDENCE'] as const;
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const url = new URL(request.url);
     const axis = url.searchParams.get('axis');
     const sessionId = url.searchParams.get('sessionId');
@@ -14,6 +17,7 @@ export async function GET(request: Request): Promise<Response> {
     if (status && !STATUSES.includes(status as never)) return problem(422, 'VALIDATION_ERROR', 'status が不正です。');
     const items = await prisma.axisAssessment.findMany({
       where: {
+        sourceSession: { userId: auth.userId },
         ...(axis ? { axis: axis as never } : {}),
         ...(sessionId ? { sourceSessionId: sessionId } : {}),
         ...(status ? { status: status as never } : {}),

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { countCodePoints, internalError, jsonBody, problem } from '@/server/api';
 import { esDocumentInclude, formatEsDocument, formatEsSummary, validatePreferredExperiences } from '@/server/es';
+import { requireAuth } from '@/server/auth/require-auth';
 
 function stringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
@@ -8,9 +9,11 @@ function stringList(value: unknown): value is string[] {
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const companyId = new URL(request.url).searchParams.get('companyId');
     const documents = await prisma.esDocument.findMany({
-      where: companyId ? { companyId } : undefined,
+      where: { userId: auth.userId, ...(companyId ? { companyId } : {}) },
       orderBy: { updatedAt: 'desc' },
     });
     return Response.json({ items: documents.map(formatEsSummary) });
@@ -21,6 +24,8 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const body = await jsonBody(request);
     if (!body || typeof body.question !== 'string' || !body.question.trim() || countCodePoints(body.question) > 5000) {
       return problem(422, 'VALIDATION_ERROR', 'question は1〜5000文字で指定してください。');
@@ -36,15 +41,16 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (body.emphasis !== undefined && !stringList(body.emphasis)) return problem(422, 'VALIDATION_ERROR', 'emphasis は文字列配列で指定してください。');
     if (typeof body.companyId === 'string') {
-      const company = await prisma.company.findUnique({ where: { id: body.companyId }, select: { id: true } });
+      const company = await prisma.company.findFirst({ where: { id: body.companyId, userId: auth.userId }, select: { id: true } });
       if (!company) return problem(404, 'NOT_FOUND', '指定された企業がありません。');
     } else if (body.companyId !== undefined && body.companyId !== null) {
       return problem(422, 'VALIDATION_ERROR', 'companyId はIDまたは null で指定してください。');
     }
-    const preferred = await validatePreferredExperiences(body.preferredExperienceIds);
+    const preferred = await validatePreferredExperiences(body.preferredExperienceIds, auth.userId);
     if (typeof preferred === 'string') return problem(422, 'VALIDATION_ERROR', preferred);
     const document = await prisma.esDocument.create({
       data: {
+        userId: auth.userId,
         companyId: typeof body.companyId === 'string' ? body.companyId : null,
         targetRole: typeof body.targetRole === 'string' ? body.targetRole : null,
         question: body.question.trim(),

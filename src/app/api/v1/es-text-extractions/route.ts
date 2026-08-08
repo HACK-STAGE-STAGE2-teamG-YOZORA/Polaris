@@ -1,11 +1,14 @@
 import { internalError, problem } from '@/server/api';
 import { EsTextExtractionError, extractEsText } from '@/server/es-text-extraction';
+import { requireAuth } from '@/server/auth/require-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     let formData: FormData;
     try {
       formData = await request.formData();

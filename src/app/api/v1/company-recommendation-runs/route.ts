@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { internalError, jsonBody, problem } from '@/server/api';
 import { enqueueRecommendationRun, recoverOrphanedRecommendationRuns } from '@/server/recommendation-runner';
 import { formatRecommendationRun, recommendationRunInclude } from '@/server/recommendation';
+import { requireAuth } from '@/server/auth/require-auth';
 
 const ACTIVE_STATUSES = ['QUEUED', 'FETCHING_SOURCES', 'ANALYZING'] as const;
 
@@ -15,6 +16,8 @@ function readStringList(value: unknown, maxItems: number, maxLength: number): st
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     if (process.env.COMPANY_RECOMMENDATION_ENABLED === 'false') {
       return problem(422, 'VALIDATION_ERROR', '企業提案機能は現在無効です。');
     }
@@ -50,13 +53,13 @@ export async function POST(request: Request): Promise<Response> {
         return problem(422, 'VALIDATION_ERROR', 'candidateCompanyIds は1〜20件の重複しないID配列で指定してください。');
       }
       candidateCompanyIds = body.candidateCompanyIds as string[];
-      const count = await prisma.company.count({ where: { id: { in: candidateCompanyIds } } });
+      const count = await prisma.company.count({ where: { userId: auth.userId, id: { in: candidateCompanyIds } } });
       if (count !== candidateCompanyIds.length) {
         return problem(422, 'VALIDATION_ERROR', 'candidateCompanyIds に未登録企業が含まれます。');
       }
     } else {
       candidateCompanyIds = (await prisma.company.findMany({
-        where: { recommendationEligible: true },
+        where: { userId: auth.userId, recommendationEligible: true },
         select: { id: true },
         orderBy: { createdAt: 'asc' },
         take: Number(maxCandidates),
@@ -67,21 +70,22 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const report = typeof body.selfAnalysisReportId === 'string'
-      ? await prisma.selfAnalysisReport.findUnique({ where: { id: body.selfAnalysisReportId } })
-      : await prisma.selfAnalysisReport.findFirst({ where: { isStale: false }, orderBy: { generatedAt: 'desc' } });
+      ? await prisma.selfAnalysisReport.findFirst({ where: { id: body.selfAnalysisReportId, sourceSession: { userId: auth.userId } } })
+      : await prisma.selfAnalysisReport.findFirst({ where: { sourceSession: { userId: auth.userId }, isStale: false }, orderBy: { generatedAt: 'desc' } });
     if (!report) return problem(409, 'CONFLICT', '現在利用できる自己分析レポートがありません。');
     if (report.isStale) return problem(409, 'CONFLICT', '指定された自己分析レポートは古いため再生成が必要です。');
-    const confirmedExperienceCount = await prisma.experience.count({ where: { status: 'CONFIRMED' } });
+    const confirmedExperienceCount = await prisma.experience.count({ where: { userId: auth.userId, status: 'CONFIRMED' } });
     if (confirmedExperienceCount === 0) {
       return problem(409, 'CONFLICT', '企業提案の根拠に使える確認済み経験がありません。');
     }
 
-    await recoverOrphanedRecommendationRuns();
-    const active = await prisma.recommendationRun.findFirst({ where: { status: { in: [...ACTIVE_STATUSES] } } });
+    await recoverOrphanedRecommendationRuns(auth.userId);
+    const active = await prisma.recommendationRun.findFirst({ where: { userId: auth.userId, status: { in: [...ACTIVE_STATUSES] } } });
     if (active) return problem(409, 'CONFLICT', '別の企業提案を実行中です。');
 
     const run = await prisma.recommendationRun.create({
       data: {
+        userId: auth.userId,
         selfAnalysisReportId: report.id,
         status: 'QUEUED',
         candidateCompanyIds,

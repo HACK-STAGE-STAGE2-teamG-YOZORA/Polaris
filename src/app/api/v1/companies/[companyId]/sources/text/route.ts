@@ -2,12 +2,15 @@ import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm
 import { prisma } from '@/lib/prisma';
 import { aiError, internalError, jsonBody, problem } from '@/server/api';
 import { formatCompanyFact, formatCompanySource, persistCompanySource, validHttpUrl } from '@/server/company';
+import { requireAuth } from '@/server/auth/require-auth';
 
 type Context = { params: Promise<{ companyId: string }> };
 
 export async function POST(request: Request, context: Context): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { companyId } = await context.params;
     const body = await jsonBody(request);
     const title = typeof body?.title === 'string' ? body.title.trim() : '';
@@ -22,7 +25,7 @@ export async function POST(request: Request, context: Context): Promise<Response
     if (body?.sourceUrl !== undefined && !validHttpUrl(body.sourceUrl)) {
       return problem(422, 'VALIDATION_ERROR', 'sourceUrl は http(s) URLで指定してください。');
     }
-    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    const company = await prisma.company.findFirst({ where: { id: companyId, userId: auth.userId } });
     if (!company) return problem(404, 'NOT_FOUND', '指定された企業がありません。');
     ai = new LmStudioPolarisAiGateway();
     const extracted = await ai.extractCompanyFacts({

@@ -2,16 +2,19 @@ import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm
 import { prisma } from '@/lib/prisma';
 import { aiError, internalError, problem } from '@/server/api';
 import { buildEsAnalysisInput, formatAnalysis, persistAnalysis } from '@/server/es';
+import { requireAuth } from '@/server/auth/require-auth';
 
 type Context = { params: Promise<{ esDocumentId: string }> };
 
-export async function POST(_request: Request, context: Context): Promise<Response> {
+export async function POST(request: Request, context: Context): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { esDocumentId } = await context.params;
-    const document = await prisma.esDocument.findUnique({ where: { id: esDocumentId } });
+    const document = await prisma.esDocument.findFirst({ where: { id: esDocumentId, userId: auth.userId } });
     if (!document) return problem(404, 'NOT_FOUND', '指定されたES文書がありません。');
-    const input = await buildEsAnalysisInput(document, document.originalText);
+    const input = await buildEsAnalysisInput(document, document.originalText, auth.userId);
     ai = new LmStudioPolarisAiGateway();
     const output = await ai.analyzeEs(input);
     const analysisId = await prisma.$transaction(async (tx) => {

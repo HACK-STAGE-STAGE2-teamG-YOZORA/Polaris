@@ -1,7 +1,12 @@
 import { createCanvas } from '@napi-rs/canvas';
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaClient } from '../src/generated/prisma/client.ts';
+import { SESSION_COOKIE_NAME } from '../src/server/auth/config.ts';
+import { sha256Base64Url } from '../src/server/auth/crypto.ts';
 import { withE2eServer, type ApiResult } from './e2e-harness.ts';
 
 type JsonObject = Record<string, unknown>;
+const AUTH_TEST_TOKEN = 'polaris-auth-contract-token';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -32,8 +37,19 @@ function textImage(): ArrayBuffer {
 }
 
 await withE2eServer(async ({ request }) => {
+  const anonymousSession = expectStatus(await request('/api/v1/auth/session', { authenticated: false }), 200, 'anonymous auth session');
+  assert(anonymousSession.authenticated === false && anonymousSession.user === null, '未認証状態が不正です。');
+  const authHeaders = { cookie: `${SESSION_COOKIE_NAME}=${AUTH_TEST_TOKEN}` };
+  const authenticatedSession = expectStatus(await request('/api/v1/auth/session', { headers: authHeaders }), 200, 'authenticated session');
+  assert(authenticatedSession.authenticated === true, '認証済み状態が不正です。');
+  assert(object(authenticatedSession.user, 'authenticated user').email === 'auth-contract@example.com', '認証ユーザーが不正です。');
+  expectStatus(await request('/api/v1/auth/logout', { method: 'POST', authenticated: false }), 204, 'anonymous logout');
+  const authNotConfigured = expectStatus(await request('/api/v1/auth/google/start'), 503, 'unconfigured Google auth');
+  assert(authNotConfigured.code === 'AUTH_NOT_CONFIGURED', 'Google未設定のエラーコードが不正です。');
   expectStatus(await request('/api/v1/system/health'), 200, 'health');
   expectStatus(await request('/api/v1/system/lm-studio'), 200, 'lm studio status');
+  const authRequired = expectStatus(await request('/api/v1/dashboard', { authenticated: false }), 401, 'dashboard requires auth');
+  assert(authRequired.code === 'AUTH_REQUIRED', '未認証のエラーコードが不正です。');
   expectStatus(await request('/api/v1/dashboard'), 200, 'empty dashboard');
   expectStatus(await request('/api/v1/analysis-sessions/current'), 200, 'empty current session');
 
@@ -53,6 +69,13 @@ await withE2eServer(async ({ request }) => {
   }), 201, 'restart session');
   const sessionId = String(session.id);
   expectStatus(await request(`/api/v1/analysis-sessions/${sessionId}`), 200, 'get session');
+  const otherSession = expectStatus(await request('/api/v1/analysis-sessions', {
+    method: 'POST',
+    headers: authHeaders,
+    body: { startMode: 'START_NEW', title: '別ユーザーセッション' },
+  }), 201, 'create other user session');
+  expectStatus(await request(`/api/v1/analysis-sessions/${String(otherSession.id)}`), 404, 'cross-user session access');
+  expectStatus(await request(`/api/v1/analysis-sessions/${sessionId}`, { headers: authHeaders }), 404, 'reverse cross-user session access');
   expectStatus(await request('/api/v1/analysis-sessions?limit=10'), 200, 'list sessions');
   expectStatus(await request('/api/v1/analysis-sessions?status=UNKNOWN'), 422, 'invalid session status');
 
@@ -83,6 +106,8 @@ await withE2eServer(async ({ request }) => {
     body: { status: 'CONFIRMED' },
   }), 200, 'confirm experience');
   expectStatus(await request('/api/v1/experiences?status=CONFIRMED'), 200, 'list experiences');
+  expectStatus(await request(`/api/v1/experiences/${experienceId}`, { headers: authHeaders }), 404, 'cross-user experience access');
+  expectStatus(await request(`/api/v1/experiences/${experienceId}`, { method: 'DELETE', headers: authHeaders }), 404, 'cross-user experience delete');
 
   const company = expectStatus(await request('/api/v1/companies', {
     method: 'POST',
@@ -94,6 +119,30 @@ await withE2eServer(async ({ request }) => {
     },
   }), 201, 'create company');
   const companyId = String(company.id);
+  expectStatus(await request(`/api/v1/companies/${companyId}`, { headers: authHeaders }), 404, 'cross-user company access');
+  expectStatus(await request(`/api/v1/companies/${companyId}`, {
+    method: 'PATCH', headers: authHeaders, body: { note: '変更不可' },
+  }), 404, 'cross-user company update');
+  expectStatus(await request(`/api/v1/companies/${companyId}`, { method: 'DELETE', headers: authHeaders }), 404, 'cross-user company delete');
+  expectStatus(await request(`/api/v1/companies/${companyId}`), 200, 'owner company remains after cross-user mutations');
+  const otherCompaniesBefore = expectStatus(await request('/api/v1/companies', { headers: authHeaders }), 200, 'other user company list');
+  assert(Array.isArray(otherCompaniesBefore.items) && otherCompaniesBefore.items.length === 0, '他ユーザーの企業一覧へデータが漏れています。');
+  const otherCompany = expectStatus(await request('/api/v1/companies', {
+    method: 'POST',
+    headers: authHeaders,
+    body: { name: '別ユーザー企業', recommendationEligible: false },
+  }), 201, 'create other user company');
+  const otherCompanyId = String(otherCompany.id);
+  expectStatus(await request(`/api/v1/companies/${otherCompanyId}`), 404, 'reverse cross-user company access');
+  expectStatus(await request('/api/v1/es-documents', {
+    method: 'POST',
+    body: {
+      companyId: otherCompanyId,
+      question: '他ユーザー企業を参照できないことを確認する。',
+      characterLimit: 200,
+      originalText: '所有者の異なる企業は利用しません。',
+    },
+  }), 404, 'cross-user company relation');
   expectStatus(await request(`/api/v1/companies/${companyId}`), 200, 'get company');
   expectStatus(await request(`/api/v1/companies/${companyId}`, {
     method: 'PATCH',
@@ -132,6 +181,33 @@ await withE2eServer(async ({ request }) => {
   expectStatus(await request(`/api/v1/companies/${companyId}`), 404, 'deleted company');
   expectStatus(await request(`/api/v1/experiences/${experienceId}`, { method: 'DELETE' }), 204, 'delete experience');
   expectStatus(await request(`/api/v1/experiences/${experienceId}`), 404, 'deleted experience');
+  expectStatus(await request('/api/v1/auth/logout', { method: 'POST', headers: authHeaders }), 204, 'authenticated logout');
+  const loggedOutSession = expectStatus(await request('/api/v1/auth/session', { headers: authHeaders }), 200, 'logged out session');
+  assert(loggedOutSession.authenticated === false, 'ログアウト後もセッションが有効です。');
+}, {
+  GOOGLE_OAUTH_CLIENT_ID: '',
+  GOOGLE_OAUTH_CLIENT_SECRET: '',
+}, async (databaseUrl) => {
+  const adapter = new PrismaBetterSqlite3({ url: databaseUrl });
+  const authPrisma = new PrismaClient({ adapter });
+  try {
+    const user = await authPrisma.user.create({
+      data: {
+        googleSubject: 'google-auth-contract-subject',
+        email: 'auth-contract@example.com',
+        displayName: '認証契約テスト',
+      },
+    });
+    await authPrisma.authSession.create({
+      data: {
+        userId: user.id,
+        tokenHash: sha256Base64Url(AUTH_TEST_TOKEN),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+  } finally {
+    await authPrisma.$disconnect();
+  }
 });
 
 console.log('Deterministic API/OpenAPI contracts: OK');

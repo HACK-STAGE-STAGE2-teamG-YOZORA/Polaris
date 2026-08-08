@@ -2,6 +2,7 @@ import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm
 import type { InterviewQuestionsInput } from '@/infrastructure/ai/types';
 import { prisma } from '@/lib/prisma';
 import { aiError, internalError, jsonBody, problem, stringArray } from '@/server/api';
+import { requireAuth } from '@/server/auth/require-auth';
 
 function optionalId(value: unknown): string | null | undefined {
   if (value === undefined || value === null) return value;
@@ -18,6 +19,8 @@ function count(value: unknown, fallback: number): number | null {
 export async function POST(request: Request): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const body = await jsonBody(request);
     if (!body) return problem(422, 'VALIDATION_ERROR', 'JSONオブジェクトを指定してください。');
 
@@ -56,13 +59,13 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const report = selfAnalysisReportId
-      ? await prisma.selfAnalysisReport.findUnique({ where: { id: selfAnalysisReportId } })
-      : await prisma.selfAnalysisReport.findFirst({ where: { isStale: false }, orderBy: { generatedAt: 'desc' } });
+      ? await prisma.selfAnalysisReport.findFirst({ where: { id: selfAnalysisReportId, sourceSession: { userId: auth.userId } } })
+      : await prisma.selfAnalysisReport.findFirst({ where: { sourceSession: { userId: auth.userId }, isStale: false }, orderBy: { generatedAt: 'desc' } });
     if (!report) return problem(409, 'CONFLICT', '面接質問に使用できる自己分析レポートがありません。');
     if (report.isStale) return problem(409, 'CONFLICT', '指定された自己分析レポートは古いため再生成が必要です。');
 
     const esDocument = esDocumentId
-      ? await prisma.esDocument.findUnique({ where: { id: esDocumentId } })
+      ? await prisma.esDocument.findFirst({ where: { id: esDocumentId, userId: auth.userId } })
       : null;
     if (esDocumentId && !esDocument) return problem(404, 'NOT_FOUND', '指定されたES文書がありません。');
     if (requestedCompanyId && esDocument?.companyId && requestedCompanyId !== esDocument.companyId) {
@@ -70,8 +73,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     const companyId = requestedCompanyId ?? esDocument?.companyId ?? null;
     const company = companyId
-      ? await prisma.company.findUnique({
-        where: { id: companyId },
+      ? await prisma.company.findFirst({
+        where: { id: companyId, userId: auth.userId },
         include: {
           sources: {
             where: { trustLevel: 'OFFICIAL' },
@@ -89,6 +92,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const experiences = await prisma.experience.findMany({
       where: {
+        userId: auth.userId,
         status: 'CONFIRMED',
         ...(experienceIds ? { id: { in: experienceIds } } : {}),
       },

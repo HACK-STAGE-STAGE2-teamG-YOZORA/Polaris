@@ -28,7 +28,7 @@ function expectStatus(result: ApiResult, expected: number, label: string): JsonO
   return object(result.body, label);
 }
 
-async function seed(databaseUrl: string): Promise<void> {
+async function seed(databaseUrl: string, userId: string): Promise<void> {
   const database = new Database(databaseUrl.replace(/^file:/u, ''));
   const now = new Date().toISOString();
   try {
@@ -36,14 +36,14 @@ async function seed(databaseUrl: string): Promise<void> {
     const experienceId = randomUUID();
     const reportId = randomUUID();
     database.prepare(`INSERT INTO analysis_sessions
-      (id, title, status, target_axes_json, created_at, updated_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(sessionId, 'P1 E2E', 'COMPLETED', JSON.stringify(['ENERGY_SOURCE', 'ACTION_STYLE', 'SATISFACTION_SOURCE', 'PREFERRED_ENVIRONMENT']), now, now, now);
+      (id, user_id, title, status, target_axes_json, created_at, updated_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(sessionId, userId, 'P1 E2E', 'COMPLETED', JSON.stringify(['ENERGY_SOURCE', 'ACTION_STYLE', 'SATISFACTION_SOURCE', 'PREFERRED_ENVIRONMENT']), now, now, now);
     database.prepare(`INSERT INTO experiences
-      (id, type, title, situation, goal, role, options_json, decision, decision_reason, actions_json, result,
+      (id, user_id, type, title, situation, goal, role, options_json, decision, decision_reason, actions_json, result,
        positive_emotion, negative_emotion, energy_change, environment_json, status, confirmed_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`)
-      .run(experienceId, 'ACHIEVEMENT', 'チーム開発の改善', '4人チームでWebアプリを開発した。',
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`)
+      .run(experienceId, userId, 'ACHIEVEMENT', 'チーム開発の改善', '4人チームでWebアプリを開発した。',
         'API設計とタスク分解を担当した。', '[]', JSON.stringify(['APIを設計した', 'タスクを分解した']),
         '期限内に完成した。', 1, JSON.stringify(['少人数チーム', '役割分担あり']), 'CONFIRMED', now, now, now);
     seeded.experienceId = experienceId;
@@ -60,9 +60,9 @@ async function seed(databaseUrl: string): Promise<void> {
       const companyId = randomUUID();
       const sourceId = randomUUID();
       database.prepare(`INSERT INTO companies
-        (id, name, target_role, origin, official_url, career_url, recommendation_eligible, note, created_at, updated_at)
-        VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?)`)
-        .run(companyId, name, 'バックエンドエンジニア', 'USER_REGISTERED', 1, now, now);
+        (id, user_id, name, target_role, origin, official_url, career_url, recommendation_eligible, note, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?)`)
+        .run(companyId, userId, name, 'バックエンドエンジニア', 'USER_REGISTERED', 1, now, now);
       const quote = `${name}では若手社員による改善提案とチーム開発を歓迎します。`;
       database.prepare(`INSERT INTO company_sources
         (id, company_id, type, trust_level, title, source_url, raw_text, content_hash, unknown_items_json, retrieved_at, created_at)
@@ -80,10 +80,10 @@ async function seed(databaseUrl: string): Promise<void> {
     const revisionId = randomUUID();
     const changeId = randomUUID();
     database.prepare(`INSERT INTO es_documents
-      (id, company_id, target_role, question, character_limit, original_text, preferred_experience_ids_json,
+      (id, user_id, company_id, target_role, question, character_limit, original_text, preferred_experience_ids_json,
        emphasis_json, status, created_at, updated_at)
-      VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(documentId, 'チームで取り組んだ経験を説明してください。', 300, '4人チームでAPI設計を担当しました。',
+      VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(documentId, userId, 'チームで取り組んだ経験を説明してください。', 300, '4人チームでAPI設計を担当しました。',
         JSON.stringify([experienceId]), '[]', 'REVISED', now, now);
     database.prepare(`INSERT INTO es_analyses
       (id, es_document_id, revision_id, source_kind, freshness, character_count, within_character_limit,

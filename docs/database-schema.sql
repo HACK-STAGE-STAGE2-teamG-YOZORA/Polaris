@@ -4,8 +4,36 @@
 
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  google_subject TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL,
+  email_verified INTEGER NOT NULL DEFAULT 1 CHECK (email_verified IN (0, 1)),
+  display_name TEXT,
+  avatar_url TEXT,
+  last_login_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE auth_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_auth_sessions_user_expires
+  ON auth_sessions(user_id, expires_at);
+
+CREATE INDEX idx_auth_sessions_expires
+  ON auth_sessions(expires_at);
+
 CREATE TABLE analysis_sessions (
   id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'READY_TO_FINALIZE', 'COMPLETED', 'ABANDONED')),
   target_axes_json TEXT NOT NULL,
@@ -13,6 +41,9 @@ CREATE TABLE analysis_sessions (
   updated_at TEXT NOT NULL,
   completed_at TEXT
 );
+
+CREATE INDEX idx_analysis_sessions_user_status
+  ON analysis_sessions(user_id, status);
 
 CREATE TABLE messages (
   id TEXT PRIMARY KEY,
@@ -26,8 +57,9 @@ CREATE TABLE messages (
   )),
   evidence_candidates_json TEXT,
   turn_metadata_json TEXT,
-  client_message_id TEXT UNIQUE,
-  created_at TEXT NOT NULL
+  client_message_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (session_id, client_message_id)
 );
 
 CREATE INDEX idx_messages_session_created
@@ -35,6 +67,7 @@ CREATE INDEX idx_messages_session_created
 
 CREATE TABLE experiences (
   id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   source_session_id TEXT REFERENCES analysis_sessions(id) ON DELETE SET NULL,
   source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   type TEXT NOT NULL CHECK (type IN (
@@ -60,7 +93,7 @@ CREATE TABLE experiences (
   updated_at TEXT NOT NULL
 );
 
-CREATE INDEX idx_experiences_status ON experiences(status);
+CREATE INDEX idx_experiences_user_status ON experiences(user_id, status);
 CREATE INDEX idx_experiences_source_message ON experiences(source_message_id);
 
 CREATE TABLE experience_quotes (
@@ -152,7 +185,8 @@ CREATE TABLE self_analysis_reports (
 CREATE INDEX idx_self_analysis_reports_generated ON self_analysis_reports(generated_at DESC);
 
 CREATE TABLE overall_self_analysis_profiles (
-  id TEXT PRIMARY KEY CHECK (id = 'default'),
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   summary TEXT NOT NULL,
   axis_trends_json TEXT NOT NULL DEFAULT '[]',
   strengths_json TEXT NOT NULL DEFAULT '[]',
@@ -170,6 +204,7 @@ CREATE TABLE overall_self_analysis_profiles (
 
 CREATE TABLE companies (
   id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   target_role TEXT,
   origin TEXT NOT NULL CHECK (origin IN ('USER_REGISTERED', 'CURATED')),
@@ -182,7 +217,7 @@ CREATE TABLE companies (
 );
 
 CREATE INDEX idx_companies_recommendation_eligible
-  ON companies(recommendation_eligible);
+  ON companies(user_id, recommendation_eligible);
 
 CREATE TABLE company_sources (
   id TEXT PRIMARY KEY,
@@ -220,6 +255,7 @@ CREATE INDEX idx_company_facts_category ON company_facts(category);
 
 CREATE TABLE es_documents (
   id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   company_id TEXT REFERENCES companies(id) ON DELETE SET NULL,
   target_role TEXT,
   question TEXT NOT NULL,
@@ -233,6 +269,7 @@ CREATE TABLE es_documents (
 );
 
 CREATE INDEX idx_es_documents_company ON es_documents(company_id);
+CREATE INDEX idx_es_documents_user_updated ON es_documents(user_id, updated_at DESC);
 
 CREATE TABLE es_analyses (
   id TEXT PRIMARY KEY,
@@ -316,6 +353,7 @@ CREATE INDEX idx_revision_changes_revision ON revision_changes(es_revision_id);
 
 CREATE TABLE recommendation_runs (
   id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   self_analysis_report_id TEXT NOT NULL REFERENCES self_analysis_reports(id) ON DELETE RESTRICT,
   status TEXT NOT NULL CHECK (status IN (
     'QUEUED', 'FETCHING_SOURCES', 'ANALYZING', 'COMPLETED',
@@ -337,7 +375,7 @@ CREATE TABLE recommendation_runs (
 );
 
 CREATE INDEX idx_recommendation_runs_created
-  ON recommendation_runs(created_at DESC);
+  ON recommendation_runs(user_id, created_at DESC);
 
 CREATE TABLE company_recommendations (
   id TEXT PRIMARY KEY,

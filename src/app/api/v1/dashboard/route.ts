@@ -1,16 +1,19 @@
 import { prisma } from '@/lib/prisma';
 import { countCodePoints, internalError, iso } from '@/server/api';
 import { formatOverallProfile, formatSession } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const [session, profile, documents] = await Promise.all([
       prisma.analysisSession.findFirst({
-        where: { status: { in: ['ACTIVE', 'READY_TO_FINALIZE'] } },
+        where: { userId: auth.userId, status: { in: ['ACTIVE', 'READY_TO_FINALIZE'] } },
         orderBy: { updatedAt: 'desc' },
       }),
-      prisma.overallSelfAnalysisProfile.findUnique({ where: { id: 'default' } }),
-      prisma.esDocument.findMany({ take: 10, orderBy: { updatedAt: 'desc' } }),
+      prisma.overallSelfAnalysisProfile.findUnique({ where: { userId: auth.userId } }),
+      prisma.esDocument.findMany({ where: { userId: auth.userId }, take: 10, orderBy: { updatedAt: 'desc' } }),
     ]);
     return Response.json({
       activeSession: session ? await formatSession(session) : null,

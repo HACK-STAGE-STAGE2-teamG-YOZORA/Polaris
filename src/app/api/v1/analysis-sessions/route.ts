@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { internalError, jsonBody, page, problem, readPagination, SELF_ANALYSIS_AXES } from '@/server/api';
 import { defaultAxes, formatSession } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 import type { SelfAnalysisAxis } from '@/types/dashboard';
 
 const ACTIVE_STATUSES = ['ACTIVE', 'READY_TO_FINALIZE'] as const;
@@ -8,13 +9,15 @@ const SESSION_STATUSES = ['ACTIVE', 'READY_TO_FINALIZE', 'COMPLETED', 'ABANDONED
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { cursor, limit } = readPagination(request);
     const status = new URL(request.url).searchParams.get('status');
     if (status && !SESSION_STATUSES.includes(status as never)) {
       return problem(422, 'VALIDATION_ERROR', 'status が不正です。');
     }
     const records = await prisma.analysisSession.findMany({
-      where: status ? { status: status as (typeof SESSION_STATUSES)[number] } : undefined,
+      where: { userId: auth.userId, ...(status ? { status: status as (typeof SESSION_STATUSES)[number] } : {}) },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -27,6 +30,8 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const body = await jsonBody(request);
     if (!body || (body.startMode !== 'START_NEW' && body.startMode !== 'RESTART_ACTIVE')) {
       return problem(422, 'VALIDATION_ERROR', 'startMode は START_NEW または RESTART_ACTIVE で指定してください。');
@@ -38,12 +43,12 @@ export async function POST(request: Request): Promise<Response> {
       return problem(422, 'VALIDATION_ERROR', 'targetAxes に不正または重複した軸があります。');
     }
     const created = await prisma.$transaction(async (tx) => {
-      const active = await tx.analysisSession.findFirst({ where: { status: { in: [...ACTIVE_STATUSES] } } });
+      const active = await tx.analysisSession.findFirst({ where: { userId: auth.userId, status: { in: [...ACTIVE_STATUSES] } } });
       if (active && body.startMode === 'START_NEW') return null;
       if (active) {
-        await tx.analysisSession.updateMany({ where: { status: { in: [...ACTIVE_STATUSES] } }, data: { status: 'ABANDONED' } });
+        await tx.analysisSession.updateMany({ where: { userId: auth.userId, status: { in: [...ACTIVE_STATUSES] } }, data: { status: 'ABANDONED' } });
       }
-      return tx.analysisSession.create({ data: { title, status: 'ACTIVE', targetAxes } });
+      return tx.analysisSession.create({ data: { userId: auth.userId, title, status: 'ACTIVE', targetAxes } });
     });
     if (!created) return problem(409, 'CONFLICT', '進行中のセッションがあります。続けるか RESTART_ACTIVE を指定してください。');
     return Response.json(await formatSession(created), { status: 201 });

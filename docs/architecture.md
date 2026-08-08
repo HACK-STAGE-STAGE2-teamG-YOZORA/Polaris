@@ -6,6 +6,7 @@
 flowchart LR
     U["ユーザーのブラウザ"] --> N["Next.js / React"]
     N --> R["Next.js Route Handlers<br>/api/v1"]
+    R --> G["Google OAuth 2.0 / OIDC"]
     R --> S["Application Services"]
     S --> A["AI Adapter"]
     S --> D["Repository"]
@@ -27,9 +28,10 @@ flowchart LR
 | Web | Next.js App Router / React | Route HandlersはNode.js runtime |
 | UI | Material UI | チャット、カード、比較画面 |
 | フォーム | React Hook Form + Zod | OpenAPIと同じ制約を反映 |
-| DB | SQLite | 単一ユーザー、ローカルMVP |
+| DB | SQLite | ローカルMVP。所有データは認証ユーザー単位で分離 |
 | ORM | Prisma ORM + `@prisma/adapter-better-sqlite3` | Prisma Schemaとmigrationを正本とする |
 | AI | LM Studio | TypeScript SDKをAI Adapter内に隔離 |
+| 認証 | Google OAuth 2.0 / OpenID Connect | P1。公式`google-auth-library`、Authorization Code + PKCE、DBセッション |
 | HTML解析 | Cheerio | P1のURL取り込み |
 | ES文字抽出 | PDF.js / Tesseract.js | P0。PNG/JPEG/PDFをローカル処理し、日本語・英語を抽出 |
 | 企業資料PDF/DOCX | PDF.js / Mammoth | P2。ES入力とは別機能 |
@@ -107,6 +109,33 @@ AI担当は「JSONがだいたい返る」で完了にせず、JSON Schemaへ適
 - 一つの完了セッションにつき`SelfAnalysisReport`は1件だけとし、`ABANDONED`セッションには作成しない。
 - ホーム総合プロフィールは`POST /api/v1/overall-self-analysis/recompute`で全完了セッションから再計算する。AIを呼ぶため`GET /dashboard`内では再計算しない。
 - P0では固定デモユーザーを使用し、Google認証はP1とする。
+
+### Google認証（P1）
+
+```mermaid
+sequenceDiagram
+    actor User as ユーザー
+    participant Browser as Browser
+    participant API as Polaris API
+    participant Google as Google OIDC
+    participant DB as SQLite
+    User->>Browser: Googleでログイン
+    Browser->>API: GET /auth/google/start
+    API-->>Browser: state・PKCE Cookie + Googleへ302
+    Browser->>Google: 認証・同意
+    Google-->>Browser: code・stateでcallbackへ302
+    Browser->>API: GET /auth/google/callback
+    API->>API: state検証
+    API->>Google: code + verifierを交換
+    Google-->>API: ID token
+    API->>API: 署名・issuer・audience・exp・email_verified検証
+    API->>DB: Google subでUserをupsert、Session hashを保存
+    API-->>Browser: HttpOnly session Cookie + ホームへ302
+```
+
+`GET /auth/session`はCookieに対応する未失効セッションと安全なユーザー表示項目だけを返し、`POST /auth/logout`はDBセッションとCookieを失効させる。Googleのアクセストークン・リフレッシュトークン・IDトークンは永続化しない。
+
+Systemと認証開始・コールバック以外のRoute Handlerは最初にDBセッションを検証する。`analysis_sessions`、`experiences`、`overall_self_analysis_profiles`、`companies`、`es_documents`、`recommendation_runs`が所有者の正本を持ち、子リソースは親リレーションを通して同じ`userId`へ絞る。関連IDを受け取るAI入力構築や非同期企業提案runnerも同じ所有者条件を引き継ぐ。
 
 ## 6. 自己分析チャットのシーケンス
 

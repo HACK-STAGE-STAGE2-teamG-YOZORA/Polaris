@@ -16,6 +16,7 @@
 - AI出力のJSON Schema、参照ID、引用原文の検証
 - `/api/v1`の自己分析、経験、4軸、総合プロフィール、ES検査・推敲API
 - Prisma／SQLiteによるセッション、根拠、分析結果の永続化
+- Google OAuth 2.0／OpenID Connectによるログイン・新規登録・ログアウトAPI
 
 ## 初回セットアップ
 
@@ -27,6 +28,18 @@ npm.cmd run db:push
 ```
 
 `.env`の`LM_STUDIO_MODEL_ID`は、LM Studioで実際にロードするモデルIDと一致させてください。SQLiteの保存先を変更しない場合、`DATABASE_URL`は`.env.example`の既定値を使用できます。
+
+### Google認証の設定
+
+Google Cloud ConsoleでWebアプリケーション用のOAuthクライアントを作成し、承認済みリダイレクトURIへ次を完全一致で登録します。
+
+```text
+http://localhost:3000/api/v1/auth/google/callback
+```
+
+`.env`の`GOOGLE_OAUTH_CLIENT_ID`と`GOOGLE_OAUTH_CLIENT_SECRET`へ発行値を設定してください。`APP_URL`を変更した場合は、同じオリジンの`/api/v1/auth/google/callback`をGoogle側にも登録します。未設定時は既存P0機能を停止せず、認証開始APIだけが`AUTH_NOT_CONFIGURED`を返します。
+
+ログイン開始は`GET /api/v1/auth/google/start`、状態確認は`GET /api/v1/auth/session`、ログアウトは`POST /api/v1/auth/logout`です。Systemと認証開始・コールバック以外のAPIはログイン必須で、自己分析・経験・総合プロフィール・企業・ES・企業提案は認証ユーザーごとに分離されます。
 
 ## CI
 
