@@ -3,47 +3,25 @@
 import { useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Checkbox from "@mui/material/Checkbox";
 import CircularProgress from "@mui/material/CircularProgress";
-import FormControlLabel from "@mui/material/FormControlLabel";
-import FormGroup from "@mui/material/FormGroup";
-import FormHelperText from "@mui/material/FormHelperText";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
-import type { SelfAnalysisAxis } from "@/types/analysis-session";
-
-// docs/openapi.yaml SelfAnalysisAxis の4値。括弧内はスキーマ説明にある両極の呼び名
-const TARGET_AXIS_OPTIONS: { value: SelfAnalysisAxis; label: string }[] = [
-  { value: "ENERGY_SOURCE", label: "エネルギー源（Focus ↔ Connect）" },
-  { value: "ACTION_STYLE", label: "行動スタイル（Plan ↔ Experiment）" },
-  { value: "SATISFACTION_SOURCE", label: "満足の源（Mastery ↔ Impact）" },
-  { value: "PREFERRED_ENVIRONMENT", label: "好む環境（Stable ↔ Dynamic）" },
-];
 
 interface SessionStartFormProps {
   submitting: boolean;
   fieldErrors: Record<string, string>;
-  onSubmit: (title: string, targetAxes: SelfAnalysisAxis[]) => void;
+  onSubmit: (title: string) => void;
 }
 
-// セッション開始フォーム。タイトル（任意）とtargetAxes（デフォルト4軸全選択）を持つ。
-// 「進行中セッションなし」の初回と「初めから」選択後の両方から使われる。
-// startMode(START_NEW/RESTART_ACTIVE)の判断はこのコンポーネントでは行わず、hook側に任せる
+// セッション開始フォーム。タイトル（任意）だけを持つ。
+// 4軸は事前に選ばせず常に4軸全部を対象にする(この画面ではtargetAxesを送らず、
+// サーバー側デフォルトに任せる)。会話の中でAIがどの軸の話かを自動判定するため、
+// 「どの軸を話すか」を先にユーザーへ選ばせるのは自己分析の流れとして不自然という判断による
 export function SessionStartForm({ submitting, fieldErrors, onSubmit }: SessionStartFormProps) {
   const [title, setTitle] = useState("");
-  // 未指定時はデフォルトで4軸全部を選択済みにしておく
-  const [targetAxes, setTargetAxes] = useState<SelfAnalysisAxis[]>(
-    TARGET_AXIS_OPTIONS.map((option) => option.value),
-  );
-
-  const toggleTargetAxis = (value: SelfAnalysisAxis) => {
-    setTargetAxes((prev) =>
-      prev.includes(value) ? prev.filter((axis) => axis !== value) : [...prev, value],
-    );
-  };
 
   return (
     <Box
@@ -69,33 +47,10 @@ export function SessionStartForm({ submitting, fieldErrors, onSubmit }: SessionS
           disabled={submitting}
           sx={inputSx}
         />
-        <FormGroup>
-          {TARGET_AXIS_OPTIONS.map((option) => (
-            <FormControlLabel
-              key={option.value}
-              control={
-                <Checkbox
-                  checked={targetAxes.includes(option.value)}
-                  onChange={() => toggleTargetAxis(option.value)}
-                  disabled={submitting}
-                  sx={{
-                    color: CHAT_COLORS.textOnDarkMuted,
-                    "&.Mui-checked": { color: CHAT_COLORS.orange },
-                  }}
-                />
-              }
-              label={option.label}
-              sx={{ color: CHAT_COLORS.textOnDark }}
-            />
-          ))}
-          {fieldErrors.targetAxes && (
-            <FormHelperText error>{fieldErrors.targetAxes}</FormHelperText>
-          )}
-        </FormGroup>
         <Button
           variant="contained"
-          disabled={submitting || targetAxes.length === 0}
-          onClick={() => onSubmit(title, targetAxes)}
+          disabled={submitting}
+          onClick={() => onSubmit(title)}
           startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
           sx={{
             bgcolor: CHAT_COLORS.orange,

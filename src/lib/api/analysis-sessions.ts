@@ -4,6 +4,8 @@
 import { apiGet, apiPost } from "@/lib/api/client";
 import type {
   AnalysisSession,
+  AnalysisSessionPage,
+  AnalysisSessionStatus,
   ChatTurnResponse,
   CreateAnalysisSessionRequest,
   CurrentAnalysisSessionResponse,
@@ -23,10 +25,22 @@ export function createAnalysisSession(
   return apiPost<AnalysisSession>("/analysis-sessions", body);
 }
 
-// GET /api/v1/analysis-sessions/current — 「チャット開始選択」画面が
-// 「続きから」に使う進行中セッションの有無を確認する（新規追加エンドポイント）
+// GET /api/v1/analysis-sessions/current — 直近に更新された進行中セッションを1件だけ確認する軽量版。
+// ホームの簡易表示に使う
 export function getCurrentAnalysisSession(): Promise<CurrentAnalysisSessionResponse> {
   return apiGet<CurrentAnalysisSessionResponse>("/analysis-sessions/current");
+}
+
+// GET /api/v1/analysis-sessions — statusを複数指定して「続きからを選べるセッション一覧」を取得する。
+// ユーザーは複数セッションを同時に進行できるため、チャット開始選択画面はこちらを使う
+export function listAnalysisSessions(params?: {
+  statuses?: AnalysisSessionStatus[];
+  limit?: number;
+}): Promise<AnalysisSessionPage> {
+  const query = new URLSearchParams();
+  for (const status of params?.statuses ?? []) query.append("status", status);
+  query.set("limit", String(params?.limit ?? 50));
+  return apiGet<AnalysisSessionPage>(`/analysis-sessions?${query.toString()}`);
 }
 
 // GET /api/v1/analysis-sessions/{sessionId} — セッションを取得する

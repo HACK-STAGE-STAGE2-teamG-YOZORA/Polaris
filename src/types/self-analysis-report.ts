@@ -21,6 +21,17 @@ export interface CareerCondition {
   axisAssessmentIds: string[];
 }
 
+// GET /self-analysis-reports の一覧項目。sourceSessionIdで絞り込むと0〜1件になる
+export interface SelfAnalysisReportSummary {
+  id: string;
+  sourceSessionId: string;
+  summary: string;
+  userMessageCount: number;
+  confirmedExperienceCount: number;
+  freshness: ResultFreshness;
+  generatedAt: string;
+}
+
 export interface SelfAnalysisReport {
   id: string;
   sourceSessionId: string;

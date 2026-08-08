@@ -11,14 +11,15 @@ import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { AnalysisSessionResponse } from "@/types/dashboard";
 
 interface HomeSessionEntryProps {
+  // GET /dashboard が返す「直近1件」の目安。件数の厳密表示や一覧はChat画面側の責務にする
   activeSession: AnalysisSessionResponse | null;
   // 総合プロフィールが1件もない＝自己分析未実施
   hasProfile: boolean;
 }
 
-// ホームの自己分析導線。docs/screen-api-map.md「2. ホーム表示状態」に対応し、
-// 進行中セッションがあれば「続きから」「初めから」、なければ開始ボタンを出す。
-// どちらの選択もチャット画面側（StartModeChoice）で確定するため、ここでは遷移だけ行う
+// ホームの自己分析導線。ユーザーは複数のセッションを同時に進行できるため、
+// ホームでは「進行中がある/ない」の大まかな案内だけにとどめ、
+// 一覧から選ぶ操作はチャット画面（StartModeChoice）に任せる
 export function HomeSessionEntry({ activeSession, hasProfile }: HomeSessionEntryProps) {
   return (
     <Box
@@ -37,11 +38,7 @@ export function HomeSessionEntry({ activeSession, hasProfile }: HomeSessionEntry
               進行中の自己分析があります
             </Typography>
             <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
-              「{activeSession.title}」/ 発言 {activeSession.progress.userMessageCount}件 / 確認済み経験{" "}
-              {activeSession.progress.confirmedExperienceCount}件
-            </Typography>
-            <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
-              「初めから」を選んでも、確認済みの経験・完了した結果・保存済みESは消えません。
+              直近の更新: 「{activeSession.title}」
             </Typography>
           </>
         ) : (
@@ -58,7 +55,7 @@ export function HomeSessionEntry({ activeSession, hasProfile }: HomeSessionEntry
         <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
           <Button
             component={Link}
-            href={activeSession ? `${ANALYSIS_CHAT_PATH}?start=resume` : ANALYSIS_CHAT_PATH}
+            href={ANALYSIS_CHAT_PATH}
             variant="contained"
             sx={{
               bgcolor: CHAT_COLORS.orange,
@@ -68,9 +65,9 @@ export function HomeSessionEntry({ activeSession, hasProfile }: HomeSessionEntry
               "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
             }}
           >
-            {activeSession ? "続きから" : "自己分析を始める"}
+            {activeSession ? "続きから一覧を見る" : "自己分析を始める"}
           </Button>
-          {/* 「初めから」は進行中セッションをABANDONEDにするが、確定操作はチャット画面のフォーム送信時 */}
+          {/* 「初めから」は他の進行中セッションを破棄しない。新規セッションを追加で作るだけ */}
           {activeSession && (
             <Button
               component={Link}

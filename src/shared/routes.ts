@@ -5,6 +5,7 @@ export const ANALYSIS_CHAT_PATH = "/analysis-chat";
 export const ES_REVISION_PATH = "/es-revision";
 export const EXPERIENCES_PATH = "/experiences";
 export const SYSTEM_STATUS_PATH = "/system-status";
+export const ACCOUNT_PATH = "/account";
 
 // ログインしていなくても開ける画面。
 // docs/screen-api-map.md「起動確認とGoogle認証開始・コールバックを除く画面APIはログイン必須」に対応し、

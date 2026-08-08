@@ -243,11 +243,18 @@ paths:
       tags: [Self Analysis]
       operationId: listAnalysisSessions
       summary: 自己分析セッション一覧を取得する
+      description: |
+        `status`は繰り返し指定できる（例: `?status=ACTIVE&status=READY_TO_FINALIZE`）。
+        「続きからを選べる画面」は、この2状態をまとめて指定してユーザーが同時に進行できる
+        複数セッションを一覧取得する。指定しない場合は全ステータスを返す。
       parameters:
         - name: status
           in: query
+          explode: true
           schema:
-            $ref: '#/components/schemas/AnalysisSessionStatus'
+            type: array
+            items:
+              $ref: '#/components/schemas/AnalysisSessionStatus'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -264,9 +271,11 @@ paths:
       operationId: createAnalysisSession
       summary: 自己分析セッションを開始する
       description: |
-        `START_NEW`は進行中セッションがある場合に409を返す。
-        `RESTART_ACTIVE`は進行中セッションをABANDONEDにしてから新規セッションを作る。
-        完了済みレポートと確認済み経験は削除しない。
+        ユーザーは複数の自己分析セッションを同時に進行できる。
+        `START_NEW`は既存の進行中セッションの有無を問わず常に新規セッションを作成する。
+        `RESTART_ACTIVE`は、ユーザーの進行中セッション（ACTIVE・READY_TO_FINALIZE）を
+        すべてABANDONEDにしてから新規セッションを作る、明示的なリセット操作である。
+        どちらも完了済みレポートと確認済み経験は削除しない。
         過去の確認済み経験は新セッション固有の4軸分析へ含めないが、ホーム総合プロフィールとES生成には使用する。
       requestBody:
         required: true
@@ -283,17 +292,19 @@ paths:
                 $ref: '#/components/schemas/AnalysisSession'
         '422':
           $ref: '#/components/responses/ValidationError'
-        '409':
-          $ref: '#/components/responses/Conflict'
 
   /api/v1/analysis-sessions/current:
     get:
       tags: [Self Analysis]
       operationId: getCurrentAnalysisSession
-      summary: 「続きから」に使用する進行中セッションを取得する
+      summary: 直近に更新された進行中セッションを1件取得する
+      description: |
+        ホームなどで「進行中の自己分析がある」ことだけを軽量に確認するための簡易エンドポイント。
+        ユーザーは複数の進行中セッションを同時に持てるため、一覧が必要な画面は
+        `GET /analysis-sessions?status=ACTIVE&status=READY_TO_FINALIZE`を使う。
       responses:
         '200':
-          description: 進行中セッション。存在しない場合は`session=null`。
+          description: 直近に更新された進行中セッション。存在しない場合は`session=null`。
           content:
             application/json:
               schema:
@@ -632,10 +643,18 @@ paths:
     get:
       tags: [Self Analysis]
       operationId: listSelfAnalysisReports
-      x-priority: P1
-      summary: 最新を含む自己分析レポート履歴を取得する
-      description: ホームでは使用しない。将来の履歴画面またはデバッグ用。
+      summary: 自己分析レポート履歴を取得する
+      description: |
+        ホームの総合プロフィールでは使用しない。
+        `sourceSessionId`を指定すると、そのセッションのレポート（0〜1件）だけを返す。
+        経験一覧の各カードから「そのセッションの自己分析結果を見る」導線に使う。
+        絞り込みなしでの全件取得は将来の履歴画面またはデバッグ用（x-priority: P1）。
       parameters:
+        - name: sourceSessionId
+          in: query
+          schema:
+            type: string
+            format: uuid
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1603,7 +1622,9 @@ components:
           type: string
           enum: [START_NEW, RESTART_ACTIVE]
           default: START_NEW
-          description: RESTART_ACTIVEは進行中セッションをABANDONEDにして新規作成する。
+          description: |
+            START_NEWは既存の進行中セッションを問わず常に新規作成する（複数セッション同時進行が可能）。
+            RESTART_ACTIVEは進行中セッションを全てABANDONEDにしてから新規作成する。
         title:
           type: string
           minLength: 1

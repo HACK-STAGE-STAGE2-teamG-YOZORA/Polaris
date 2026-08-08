@@ -6,17 +6,18 @@
 |---|---|---|---|---|
 | 起動確認 | `/system-status` | DB・LM Studio状態と復旧案内 | `GET /system/health`, `GET /system/lm-studio` | P0 |
 | ホーム | `/` | 進行中セッション、全履歴からの総合4軸傾向、強み、弱み、データ量、保存済みESを表示 | `GET /dashboard`, `POST /overall-self-analysis/recompute` | P0 |
-| チャット開始選択 | `/analysis-chat` | 初回開始、続きから、初めから | `GET /analysis-sessions/current`, `POST /analysis-sessions` | P0 |
+| チャット開始選択 | `/analysis-chat` | 進行中セッション一覧から続きから、または初めから | `GET /analysis-sessions?status=ACTIVE&status=READY_TO_FINALIZE`, `POST /analysis-sessions` | P0 |
 | 自己分析チャット | `/analysis-chat` | 経験を一つずつ深掘りし、終了候補を案内 | `GET/POST /analysis-sessions/{id}/messages` | P0 |
 | 終了確認 | `/analysis-chat` | 自動終了せず、本人確認後にそのセッション固有の4軸分析とレポートを1件作成 | `POST /analysis-sessions/{id}/axis-assessments/generate`, `POST /analysis-sessions/{id}/finalize` | P0 |
 | 経験カード確認 | `/analysis-chat`, `/experiences` | AI抽出結果を本人が修正・確認 | `POST /analysis-sessions/{id}/experience-drafts`, `PATCH /experiences/{id}` | P0 |
-| 経験一覧 | `/experiences` | 確認済み／下書きの管理 | `GET /experiences`, `GET/PATCH/DELETE /experiences/{id}` | P0 |
+| 経験一覧 | `/experiences` | 確認済み／下書きの管理、そのセッションの自己分析結果への導線 | `GET /experiences`, `GET/PATCH/DELETE /experiences/{id}`, `GET /self-analysis-reports?sourceSessionId={id}` | P0 |
 | セッション4軸結果 | `/analysis-chat` | そのチャットの軸位置、コメント、左右・状況別根拠、本人評価 | `GET /axis-assessments`, `PATCH /axis-assessments/{id}`, `GET /self-analysis-reports/{id}` | P0 |
 | 企業情報 | 未作成 | 任意の企業、出典、抽出事実を確認 | `GET/POST /companies`, `POST /companies/{id}/sources/text` | P0任意 |
 | ES入力 | `/es-revision` | 文章貼り付け、PNG/JPEG画像、PDFから原文を入力し、抽出文を確認後に設問・文字数・任意の企業・経験と保存 | `POST /es-text-extractions`, `GET/POST /es-documents`, `GET/PATCH /es-documents/{id}` | P0 |
 | ES検査結果 | `/es-revision` | 主張の根拠状態、問題箇所、コメントを表示 | `POST /es-documents/{id}/analyses` | P0 |
 | ES完成版 | `/es-revision` | そのまま提出可能な品質を目標にしたES案と、その下の根拠状態・問題箇所・改善理由コメントを表示 | `POST /es-documents/{id}/revisions`, `POST /es-revisions/{id}/verify` | P0 |
-| Googleログイン | `/login` | Google認証、新規登録、ログイン状態確認、ログアウト | `GET /auth/google/start`, `GET /auth/google/callback`, `GET /auth/session`, `POST /auth/logout` | P1 |
+| Googleログイン | `/login` | Google認証、新規登録、ログイン状態確認 | `GET /auth/google/start`, `GET /auth/google/callback`, `GET /auth/session` | P1 |
+| アカウント | `/account` | ユーザー情報表示、ログアウト | `POST /auth/logout` | P1 |
 | 企業提案 | 未作成 | 登録企業の公式情報に基づく本命／挑戦／意外枠 | `POST /company-recommendation-runs`, `GET /company-recommendation-runs/{id}` | P1 |
 | 面接準備 | 未作成 | 確認済み経験の深掘り質問と、公式企業情報に基づく逆質問 | `POST /interview-questions/generate` | P1 |
 
@@ -24,7 +25,9 @@ API列では共通の`/api/v1`を省略している。画面パス列の「未�
 
 同じ画面パスを複数行が共有している画面は、1つのページの中で状態に応じて切り替える。`/analysis-chat`は「開始選択 → チャット → 経験カード確認 → 終了確認 → 4軸結果と本人評価」を1ページで進め、`/es-revision`は「ES入力 → 検査結果 → 完成版」を1ページで進める。経験カード確認だけは、チャットの流れの中と`/experiences`の両方から同じフォームで行う。
 
-下部ナビゲーションはログイン済みのときだけ表示し、ホーム(`/`)、自己分析チャット(`/analysis-chat`)、経験一覧(`/experiences`)、ES添削(`/es-revision`)の4つを並べる。起動確認へは、ホーム下部のリンクと、`AI_UNAVAILABLE`を表示したエラー欄からの導線で入る。
+下部ナビゲーションはログイン済みのときだけ表示し、ホーム(`/`)、自己分析チャット(`/analysis-chat`)、経験一覧(`/experiences`)、ES添削(`/es-revision`)、アカウント(`/account`)の5つを並べる。起動確認へは、ホーム下部のリンクと、`AI_UNAVAILABLE`を表示したエラー欄からの導線で入る。
+
+アカウント画面(`/account`)はユーザー情報の確認とログアウト(`POST /auth/logout`)だけを扱う。ログアウト成功後はフルリロードでログイン画面(`/login`)へ入り直す。
 
 起動確認とGoogle認証開始・コールバックを除く画面APIはログイン必須である。`GET /auth/session`が未認証を返した場合、個人データ画面を描画せずGoogleログイン画面（`/login`）へ案内する。API呼び出しが401を返した場合も同じく`/login`へ戻す。認証に失敗したコールバックは`/login?authError={code}`へリダイレクトする。
 
@@ -35,22 +38,26 @@ API列では共通の`/api/v1`を省略している。画面パス列の「未�
 | 状態 | 表示 |
 |---|---|
 | 自己分析未開始 | 「まずは自己分析を始めましょう」と開始ボタン |
-| 進行中セッションあり | 「続きから」と「初めから」を表示 |
+| 進行中セッションあり | ホームでは大まかな案内のみ表示し、チャット画面(`/analysis-chat`)へ誘導する。一覧・個別の「続きから」はチャット画面側の責務 |
 | 総合プロフィールあり | 全セッションから再計算した4軸、要約、強み、弱み・注意点を表示 |
 | データが少ない | 完了セッション数・USER発言数・確認済み経験数と注意文を表示。結果自体は隠さない |
 | 総合プロフィールが古い | `STALE`と再集計ボタンを表示。過去セッション一覧は表示しない |
 | ES下書きあり | 設問、保存日時、`DRAFT/ANALYZED/REVISED/VERIFIED`を表示 |
 
-「初めから」は進行中セッションを`ABANDONED`にするが、確認済み経験、完了済みレポート、ESを削除しない。
+ユーザーは複数の自己分析セッションを同時に進行できる。チャット開始選択画面(`/analysis-chat`)は
+`GET /analysis-sessions?status=ACTIVE&status=READY_TO_FINALIZE`で進行中セッションを一覧取得し、
+「進行中の自己分析がN件あります」として個別に「続きから」を選べるようにする。
+「初めから」は他の進行中セッションを`ABANDONED`にせず、常に新しいセッションを追加で作成する
+（他の進行中セッションを終わらせたい場合だけ、明示的なリセット操作として`RESTART_ACTIVE`を使う）。
 
 ## 3. 画面で必ず区別する状態
 
 ### 自己分析セッション
 
-- `ACTIVE`: 会話中。「続きから」で再開できる。
+- `ACTIVE`: 会話中。同時に複数件`ACTIVE`になり得る。それぞれ個別に「続きから」で再開できる。
 - `READY_TO_FINALIZE`: USER回答1件以上、4軸分析済み、4軸すべて本人評価済み。確認済み経験が0件でも進めるが、根拠不足を表示する。
-- `COMPLETED`: finalize済み。ホーム総合プロフィールとES生成の内部入力に使用する。
-- `ABANDONED`: 「初めから」により中断。通常の再開候補には出さない。
+- `COMPLETED`: finalize済み。ホーム総合プロフィールとES生成の内部入力に使用する。以後そのセッションへメッセージは送れない。
+- `ABANDONED`: 明示的なリセット操作(`RESTART_ACTIVE`)により中断。通常の再開候補には出さない。
 
 ### 経験
 

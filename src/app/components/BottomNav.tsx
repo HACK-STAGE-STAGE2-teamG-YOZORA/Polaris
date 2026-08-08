@@ -9,6 +9,7 @@ import SvgIcon from "@mui/material/SvgIcon";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 
 import {
+  ACCOUNT_PATH,
   ANALYSIS_CHAT_PATH,
   ES_REVISION_PATH,
   EXPERIENCES_PATH,
@@ -48,11 +49,20 @@ function CardsIcon(props: SvgIconProps) {
   );
 }
 
+function UserIcon(props: SvgIconProps) {
+  return (
+    <SvgIcon {...props}>
+      <path d="M12 12a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5Zm0 2.1c-4.25 0-7.7 2.34-7.7 5.22V21h15.4v-1.68c0-2.88-3.45-5.22-7.7-5.22Z" />
+    </SvgIcon>
+  );
+}
+
 const NAV_ITEMS = [
   { label: "Home", href: HOME_PATH, icon: HomeIcon },
   { label: "Chat", href: ANALYSIS_CHAT_PATH, icon: ChatIcon },
   { label: "Cards", href: EXPERIENCES_PATH, icon: CardsIcon },
   { label: "Review", href: ES_REVISION_PATH, icon: ReviewIcon },
+  { label: "User", href: ACCOUNT_PATH, icon: UserIcon },
 ] as const;
 
 // アプリ共通の下部ナビゲーション。layout.tsxからだけ呼び出し、

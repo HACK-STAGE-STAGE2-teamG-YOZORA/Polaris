@@ -12,13 +12,15 @@ export async function GET(request: Request): Promise<Response> {
     const auth = await requireAuth(request);
     if ('response' in auth) return auth.response;
     const { cursor, limit } = readPagination(request);
-    const status = new URL(request.url).searchParams.get('status');
-    if (status && !SESSION_STATUSES.includes(status as never)) {
+    // 複数指定(?status=ACTIVE&status=READY_TO_FINALIZE)で「再開できるセッション一覧」を
+    // 1回のリクエストで取得できるようにする。単一指定の既存呼び出しはそのまま動く
+    const statuses = new URL(request.url).searchParams.getAll('status');
+    if (statuses.some((status) => !SESSION_STATUSES.includes(status as never))) {
       return problem(422, 'VALIDATION_ERROR', 'status が不正です。');
     }
     const records = await prisma.analysisSession.findMany({
-      where: { userId: auth.userId, ...(status ? { status: status as (typeof SESSION_STATUSES)[number] } : {}) },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      where: { userId: auth.userId, ...(statuses.length > 0 ? { status: { in: statuses as (typeof SESSION_STATUSES)[number][] } } : {}) },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
@@ -42,15 +44,14 @@ export async function POST(request: Request): Promise<Response> {
     if (!Array.isArray(targetAxes) || targetAxes.length === 0 || new Set(targetAxes).size !== targetAxes.length || targetAxes.some((axis) => !SELF_ANALYSIS_AXES.includes(axis))) {
       return problem(422, 'VALIDATION_ERROR', 'targetAxes に不正または重複した軸があります。');
     }
+    // 複数セッションの同時進行を許可する。START_NEWは既存の進行中セッションを問わず常に新規作成し、
+    // RESTART_ACTIVEだけが「進行中セッションを全部ABANDONEDにしてから作り直す」という明示的なリセット操作になる
     const created = await prisma.$transaction(async (tx) => {
-      const active = await tx.analysisSession.findFirst({ where: { userId: auth.userId, status: { in: [...ACTIVE_STATUSES] } } });
-      if (active && body.startMode === 'START_NEW') return null;
-      if (active) {
+      if (body.startMode === 'RESTART_ACTIVE') {
         await tx.analysisSession.updateMany({ where: { userId: auth.userId, status: { in: [...ACTIVE_STATUSES] } }, data: { status: 'ABANDONED' } });
       }
       return tx.analysisSession.create({ data: { userId: auth.userId, title, status: 'ACTIVE', targetAxes } });
     });
-    if (!created) return problem(409, 'CONFLICT', '進行中のセッションがあります。続けるか RESTART_ACTIVE を指定してください。');
     return Response.json(await formatSession(created), { status: 201 });
   } catch (error) {
     return internalError(error, '自己分析セッションの作成');
