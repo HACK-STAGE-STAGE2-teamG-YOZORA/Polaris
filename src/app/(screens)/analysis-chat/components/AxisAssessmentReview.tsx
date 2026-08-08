@@ -165,32 +165,34 @@ export function AxisAssessmentReview({
                 </Accordion>
               )}
 
-              {evidenceCount === 0 && (
+              {evidenceCount === 0 ? (
+                // 根拠不足の軸は判断する材料が何もないため、本人評価も求めない
+                // （確定条件からも除外される。docs/screen-api-map.md 4.3）
                 <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
-                  この軸を判断できる材料がまだありません。会話を続けるか、経験カードを確認済みにすると根拠が増えます。
+                  この軸を判断できる材料がまだありません。会話を続けるか、経験カードを確認済みにすると根拠が増え、評価できるようになります。
                 </Typography>
+              ) : (
+                /* 本人評価。押した値だけが保存され、未評価のまま自動で埋めることはしない */
+                <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.5 }}>
+                  {REVIEWABLE_ASSESSMENTS.map((value) => (
+                    <Button
+                      key={value}
+                      size="small"
+                      variant={assessment.userAssessment === value ? "contained" : "outlined"}
+                      disabled={reviewingAxisId !== null || completed}
+                      onClick={() => onReview(assessment.id, value)}
+                      sx={
+                        assessment.userAssessment === value
+                          ? { bgcolor: CHAT_COLORS.orange, color: CHAT_COLORS.bubbleText, "&:hover": { bgcolor: CHAT_COLORS.orangeDark } }
+                          : { color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder }
+                      }
+                    >
+                      {USER_ASSESSMENT_LABELS[value]}
+                    </Button>
+                  ))}
+                  {reviewing && <CircularProgress size={16} sx={{ color: CHAT_COLORS.orange }} />}
+                </Stack>
               )}
-
-              {/* 本人評価。押した値だけが保存され、未評価のまま自動で埋めることはしない */}
-              <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.5 }}>
-                {REVIEWABLE_ASSESSMENTS.map((value) => (
-                  <Button
-                    key={value}
-                    size="small"
-                    variant={assessment.userAssessment === value ? "contained" : "outlined"}
-                    disabled={reviewingAxisId !== null || completed}
-                    onClick={() => onReview(assessment.id, value)}
-                    sx={
-                      assessment.userAssessment === value
-                        ? { bgcolor: CHAT_COLORS.orange, color: CHAT_COLORS.bubbleText, "&:hover": { bgcolor: CHAT_COLORS.orangeDark } }
-                        : { color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder }
-                    }
-                  >
-                    {USER_ASSESSMENT_LABELS[value]}
-                  </Button>
-                ))}
-                {reviewing && <CircularProgress size={16} sx={{ color: CHAT_COLORS.orange }} />}
-              </Stack>
             </Stack>
           </Box>
         );

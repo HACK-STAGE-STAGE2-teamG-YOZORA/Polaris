@@ -10,14 +10,16 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
+import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 
 import { ExperienceListItem } from "./components/ExperienceListItem";
 import { useExperiences } from "./use-experiences";
-import type { ExperienceFilter } from "./use-experiences";
+import type { ExperienceFilter, ExperienceSortMode } from "./use-experiences";
 import { ExperienceCardForm } from "@/app/components/ExperienceCardForm";
 import { SessionReportDialog } from "@/app/components/SessionReportDialog";
 import { ANALYSIS_CHAT_PATH, SYSTEM_STATUS_PATH } from "@/shared/routes";
@@ -29,13 +31,22 @@ const FILTERS: ReadonlyArray<{ value: ExperienceFilter; label: string }> = [
   { value: "CONFIRMED", label: "確認済み" },
 ];
 
+const SORT_MODES: ReadonlyArray<{ value: ExperienceSortMode; label: string }> = [
+  { value: "UPDATED", label: "更新順" },
+  { value: "HISTORY", label: "履歴順(チャットを行った順)" },
+  { value: "BY_SESSION", label: "セッション別" },
+];
+
 // 経験一覧。docs/screen-api-map.md「経験一覧 | 確認済み／下書きの管理」に対応する。
 // 確認済み(CONFIRMED)にした経験だけが4軸分析とESの正式根拠になる
 export default function ExperiencesPage() {
   const {
     items,
+    sortedItems,
+    sessionGroups,
     loading,
     filter,
+    sortMode,
     editingId,
     saving,
     deletingId,
@@ -43,6 +54,7 @@ export default function ExperiencesPage() {
     error,
     confirmedCount,
     setFilter,
+    setSortMode,
     startEdit,
     cancelEdit,
     save,
@@ -98,6 +110,30 @@ export default function ExperiencesPage() {
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
+
+          <TextField
+            select
+            size="small"
+            label="並び順"
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value as ExperienceSortMode)}
+            sx={{
+              maxWidth: 280,
+              "& .MuiInputLabel-root": { color: CHAT_COLORS.textOnDarkMuted },
+              "& .MuiOutlinedInput-root": {
+                color: CHAT_COLORS.textOnDark,
+                "& fieldset": { borderColor: CHAT_COLORS.navyBorder },
+                "&:hover fieldset": { borderColor: CHAT_COLORS.orange },
+                "&.Mui-focused fieldset": { borderColor: CHAT_COLORS.orange },
+              },
+            }}
+          >
+            {SORT_MODES.map((item) => (
+              <MenuItem key={item.value} value={item.value}>
+                {item.label}
+              </MenuItem>
+            ))}
+          </TextField>
 
           {notice && (
             <Typography variant="body2" sx={{ color: CHAT_COLORS.orange }}>
@@ -165,8 +201,8 @@ export default function ExperiencesPage() {
             </Stack>
           )}
 
-          {!loading &&
-            items.map((experience) => (
+          {!loading && sortMode !== "BY_SESSION" &&
+            sortedItems.map((experience) => (
               <ExperienceListItem
                 key={experience.id}
                 experience={experience}
@@ -177,6 +213,38 @@ export default function ExperiencesPage() {
                 disabled={saving || deletingId !== null}
               />
             ))}
+
+          {!loading && sortMode === "BY_SESSION" && (
+            <Stack spacing={3}>
+              {sessionGroups.map((group) => (
+                <Stack key={group.sessionId ?? "__none__"} spacing={1.5}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", flexWrap: "wrap" }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                      {group.sessionTitle}
+                    </Typography>
+                    {group.sessionCreatedAt && (
+                      <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
+                        {new Date(group.sessionCreatedAt).toLocaleDateString()}
+                      </Typography>
+                    )}
+                  </Stack>
+                  <Stack spacing={1.5}>
+                    {group.items.map((experience) => (
+                      <ExperienceListItem
+                        key={experience.id}
+                        experience={experience}
+                        onEdit={() => startEdit(experience.id)}
+                        onDelete={() => setPendingDeleteId(experience.id)}
+                        onViewSession={setViewingSessionId}
+                        deleting={deletingId === experience.id}
+                        disabled={saving || deletingId !== null}
+                      />
+                    ))}
+                  </Stack>
+                </Stack>
+              ))}
+            </Stack>
+          )}
         </Stack>
       </Box>
 

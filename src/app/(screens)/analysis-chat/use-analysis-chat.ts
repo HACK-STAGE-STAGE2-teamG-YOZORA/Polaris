@@ -49,6 +49,9 @@ interface UseAnalysisChatState {
   loadingResumable: boolean;
   // ユーザーは複数のセッションを同時に進行できるため、単一ではなく一覧で持つ
   resumableSessions: AnalysisSession[];
+  // 続きから送信はできない(COMPLETED・ABANDONED)が、結果の閲覧・参照はできるセッション。
+  // 「全セッションを見る」要望に応え、進行中でなくても一覧から辿れるようにする
+  otherSessions: AnalysisSession[];
   // 「初めから」を選んだ、または再開できるセッションが元々ない場合にtrue。
   // trueのあいだはSessionStartFormを表示する
   showNewSessionForm: boolean;
@@ -83,6 +86,7 @@ interface UseAnalysisChatState {
 const initialState: UseAnalysisChatState = {
   loadingResumable: true,
   resumableSessions: [],
+  otherSessions: [],
   showNewSessionForm: false,
   session: null,
   messages: [],
@@ -228,13 +232,18 @@ export function useAnalysisChat(initialAction?: InitialStartAction) {
       }
 
       try {
-        const { items } = await listAnalysisSessions({ statuses: RESUMABLE_STATUSES });
+        // ステータス指定なし=全件取得。続きから可能なもの／結果閲覧のみのものに分ける
+        const { items } = await listAnalysisSessions({ limit: 100 });
         if (cancelled) return;
+        const resumable = items.filter((item) => RESUMABLE_STATUSES.includes(item.status));
+        // ABANDONEDはメッセージ送信もレポート閲覧もできない行き止まりなので一覧に出さない
+        const other = items.filter((item) => item.status === "COMPLETED");
         setState((prev) => ({
           ...prev,
-          resumableSessions: items,
+          resumableSessions: resumable,
+          otherSessions: other,
           loadingResumable: false,
-          // 「初めから」で来た場合、または再開できるセッションが1件もない場合は選択を飛ばす
+          // 「初めから」で来た場合、または表示できるセッションが1件もない場合は選択を飛ばす
           showNewSessionForm: initialAction?.type === "new" || items.length === 0,
         }));
       } catch (err) {
@@ -525,8 +534,11 @@ export function useAnalysisChat(initialAction?: InitialStartAction) {
     }
   }, [state.session]);
 
-  // 本人評価がまだの軸。1つでも残っているあいだはfinalizeできない
-  const unreviewedAxes = state.assessments.filter((item) => item.userAssessment === "UNREVIEWED");
+  // 本人評価がまだの軸。1つでも残っているあいだはfinalizeできない。
+  // 根拠不足(INSUFFICIENT_EVIDENCE)の軸は評価する材料がないため対象外とする（サーバー側と揃える）
+  const unreviewedAxes = state.assessments.filter(
+    (item) => item.userAssessment === "UNREVIEWED" && item.status !== "INSUFFICIENT_EVIDENCE",
+  );
   // 評価後に会話を続けた軸。再生成しないとfinalizeできない
   const hasStaleAssessment = state.assessments.some((item) => item.isStale);
 

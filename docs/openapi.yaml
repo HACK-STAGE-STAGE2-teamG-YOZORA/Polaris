@@ -459,10 +459,12 @@ paths:
       operationId: finalizeAnalysisSession
       summary: 自己分析を完了し、4軸の自己分析レポートを作成する
       description: |
-        終了確認後に呼ぶ。USERメッセージ1件以上、4軸分析、4軸すべての本人評価を必要とする。
+        終了確認後に呼ぶ。USERメッセージ1件以上、4軸分析、根拠のある軸すべての本人評価を必要とする。
         セッション状態がREADY_TO_FINALIZEの場合だけ成功する。本人評価後に会話を続けた場合は、
         既存4軸分析をSTALEとしてACTIVEへ戻すため、4軸の再生成と再評価が必要である。
-        `UNREVIEWED`の軸が一つでもある場合は409を返す。
+        status=INSUFFICIENT_EVIDENCE（根拠不足）の軸は評価する材料がないため本人評価の対象外とし、
+        UNREVIEWEDのままでも確定を妨げない。根拠のある軸（CONFIRMED_PATTERN・CURRENT_HYPOTHESIS）に
+        `UNREVIEWED`が一つでもある場合は409を返す。
         確認済み経験が0件でも完了できるが、根拠のない軸はINSUFFICIENT_EVIDENCEとする。
         同一セッションへ作成できるレポートは1件だけである。
       responses:

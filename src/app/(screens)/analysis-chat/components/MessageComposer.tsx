@@ -67,12 +67,26 @@ export function MessageComposer({
           sx={{
             "& .MuiOutlinedInput-root": {
               bgcolor: CHAT_COLORS.userBubble,
-              borderRadius: "999px",
-              px: 1,
+              // 1行分の高さでは丸いピル型(999px)、複数行に伸びたときは
+              // 角丸の四角に近づける。ピル型のまま複数行にすると、丸い角と
+              // テキスト・スクロールバーが干渉して見切れて見えるため
+              borderRadius: 20,
+              py: 0.5,
               "& fieldset": { borderColor: CHAT_COLORS.orange, borderWidth: 2 },
               "&:hover fieldset": { borderColor: CHAT_COLORS.orange },
               "&.Mui-focused fieldset": { borderColor: CHAT_COLORS.orange },
               "&.Mui-error fieldset": { borderColor: "#d32f2f" },
+            },
+            "& .MuiOutlinedInput-input": {
+              // 右側にスクロールバー分の余白を確保し、テキストと重ならないようにする
+              pl: 1.25,
+              pr: 2,
+              // スクロールバーを細くしてボーダーの丸みへ被らないようにする
+              "&::-webkit-scrollbar": { width: 6 },
+              "&::-webkit-scrollbar-thumb": {
+                backgroundColor: "rgba(0,0,0,0.25)",
+                borderRadius: 999,
+              },
             },
           }}
         />

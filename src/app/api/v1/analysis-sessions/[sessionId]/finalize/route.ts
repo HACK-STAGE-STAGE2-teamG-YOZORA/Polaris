@@ -33,7 +33,11 @@ export async function POST(request: Request, context: Context): Promise<Response
     if (userMessageCount < 1) return problem(409, 'CONFLICT', '確定にはUSERメッセージが1件以上必要です。');
     const byAxis = new Map(assessments.map((item) => [item.axis, item]));
     const missing = SELF_ANALYSIS_AXES.filter((axis) => !byAxis.has(axis));
-    const unreviewed = assessments.filter((item) => item.userAssessment === 'UNREVIEWED').map((item) => item.axis);
+    // 根拠不足(INSUFFICIENT_EVIDENCE)の軸は評価する材料が画面上に何もないため、
+    // 本人評価を求めない。UNREVIEWEDのままでも確定を妨げない
+    const unreviewed = assessments
+      .filter((item) => item.userAssessment === 'UNREVIEWED' && item.status !== 'INSUFFICIENT_EVIDENCE')
+      .map((item) => item.axis);
     if (missing.length > 0 || unreviewed.length > 0) {
       return problem(409, 'CONFLICT', '4軸すべての生成と本人評価が必要です。', {
         details: [...missing.map((axis) => ({ axis, reason: 'NOT_GENERATED' })), ...unreviewed.map((axis) => ({ axis, reason: 'UNREVIEWED' }))],
