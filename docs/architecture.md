@@ -101,10 +101,10 @@ AI担当は「JSONがだいたい返る」で完了にせず、JSON Schemaへ適
 
 ホームは`GET /api/v1/dashboard`で、進行中セッション、全履歴から生成した総合プロフィール、保存済みES要約を取得する。セッションごとの過去結果一覧は返さない。
 
-- 進行中セッションがなければ`POST /analysis-sessions`で開始する。
-- 「続きから」は`GET /analysis-sessions/current`とメッセージ一覧で復元する。
-- 「初めから」は`startMode=RESTART_ACTIVE`で作成し、進行中セッションを`ABANDONED`にして新規セッションを同一トランザクションで作る。
-- 完了済みレポートと確認済み経験は再開始時に削除しない。
+- ユーザーは複数の自己分析セッションを同時に進行できる。`startMode=START_NEW`は既存の進行中セッションの有無を問わず常に新規セッションを作成する。
+- 「続きから」は`GET /analysis-sessions?status=ACTIVE&status=READY_TO_FINALIZE`で一覧取得し、選んだセッションのメッセージ一覧で復元する。`GET /analysis-sessions/current`は直近1件を返す軽量版で、ホームの簡易表示に使う。
+- `startMode=RESTART_ACTIVE`は、ユーザーの進行中セッションを全て`ABANDONED`にしてから新規セッションを同一トランザクションで作る、明示的なリセット操作である。
+- 完了済みレポートと確認済み経験は新規セッション作成時に削除しない。
 - 新セッション固有の4軸分析にはそのセッションで確認した経験だけを使う。過去経験はホーム総合プロフィールとES生成には含める。
 - 一つの完了セッションにつき`SelfAnalysisReport`は1件だけとし、`ABANDONED`セッションには作成しない。
 - ホーム総合プロフィールは`POST /api/v1/overall-self-analysis/recompute`で全完了セッションから再計算する。AIを呼ぶため`GET /dashboard`内では再計算しない。

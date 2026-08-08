@@ -5,8 +5,9 @@ import {
   createExperienceDraft,
   finalizeAnalysisSession,
   generateAxisAssessments,
-  getCurrentAnalysisSession,
+  getAnalysisSession,
   listAnalysisMessages,
+  listAnalysisSessions,
   recomputeOverallSelfAnalysis,
   sendAnalysisMessage,
 } from "@/lib/api/analysis-sessions";
@@ -38,14 +39,17 @@ export interface ChatFormError {
   fieldErrors: Record<string, string>;
 }
 
+// このユーザーが同時に進行できるセッションのステータス
+const RESUMABLE_STATUSES: AnalysisSession["status"][] = ["ACTIVE", "READY_TO_FINALIZE"];
+
 // この画面が持つ状態を1つにまとめたもの。UIコンポーネントは持たず、
 // このフックだけがAPI呼び出しと状態更新の責務を持つ（ロジックとUIの分離）
 interface UseAnalysisChatState {
-  // GET /analysis-sessions/current の確認中かどうか（チャット開始選択の最初の分岐に使う）
-  checkingCurrent: boolean;
-  // GET /analysis-sessions/current で見つかった進行中セッション（続きから/初めからの選択材料）
-  currentSession: AnalysisSession | null;
-  // 「初めから」を選んだ、または進行中セッションが元々ない場合にtrue。
+  // 再開できるセッション一覧の取得中かどうか（チャット開始選択の最初の分岐に使う）
+  loadingResumable: boolean;
+  // ユーザーは複数のセッションを同時に進行できるため、単一ではなく一覧で持つ
+  resumableSessions: AnalysisSession[];
+  // 「初めから」を選んだ、または再開できるセッションが元々ない場合にtrue。
   // trueのあいだはSessionStartFormを表示する
   showNewSessionForm: boolean;
   // 実際にチャットが進行しているセッション（続きから、または新規作成後にセットされる）
@@ -77,8 +81,8 @@ interface UseAnalysisChatState {
 }
 
 const initialState: UseAnalysisChatState = {
-  checkingCurrent: true,
-  currentSession: null,
+  loadingResumable: true,
+  resumableSessions: [],
   showNewSessionForm: false,
   session: null,
   messages: [],
@@ -159,7 +163,7 @@ function toFormError(err: unknown): ChatFormError {
         fieldErrors,
       };
     case "CONFLICT":
-      // 409: 既存の進行中セッションや状態不一致（例: 未評価の軸が残ったままのfinalize）
+      // 409: 状態不一致（例: 未評価の軸が残ったままのfinalize）
       return {
         code,
         message:
@@ -185,117 +189,124 @@ function toFormError(err: unknown): ChatFormError {
   }
 }
 
-// ホームの「続きから」「初めから」から遷移してきた場合に、開始選択を省略して
-// そのモードで始めるための指定（docs/screen-api-map.md「2. ホーム表示状態」）
-export type InitialStartMode = "resume" | "new";
+// ホーム・経験一覧から遷移してきた場合に、開始選択を省略してそのまま始めるための指定。
+// "new": 選択を飛ばして新規作成フォームを出す（自分でtitleを決めたいので即POSTはしない）
+// resumeSessionId: 指定セッションへ直接入る（経験カードから「このセッションの続きから」で使う）
+export type InitialStartAction = { type: "new" } | { type: "resume"; sessionId: string };
 
-export function useAnalysisChat(initialStartMode?: InitialStartMode) {
+export function useAnalysisChat(initialAction?: InitialStartAction) {
   const [state, setState] = useState<UseAnalysisChatState>(initialState);
 
-  // 画面表示時に一度だけ進行中セッションの有無を確認する。
-  // これが「チャット開始選択」の起点になる（あればStartModeChoice、なければSessionStartFormを出す）
+  const loadMessagesInto = useCallback(async (session: AnalysisSession) => {
+    setState((prev) => ({ ...prev, session, loadingMessages: true, showNewSessionForm: false }));
+    try {
+      const page = await listAnalysisMessages(session.id);
+      setState((prev) => ({ ...prev, messages: page.items, loadingMessages: false }));
+    } catch (err) {
+      setState((prev) => ({ ...prev, loadingMessages: false, error: toFormError(err) }));
+    }
+  }, []);
+
+  // 画面表示時に、続きから選べるセッション一覧を取得する。
+  // これが「チャット開始選択」の起点になる（あれば一覧、なければSessionStartFormを出す）
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const { session } = await getCurrentAnalysisSession();
-        if (cancelled) return;
-
-        // 「初めから」で来た場合は選択画面を飛ばして新規作成フォームを出す。
-        // 進行中セッションのABANDONED化はフォーム送信時なので、ここでは破棄しない
-        if (initialStartMode === "new") {
-          setState((prev) => ({
-            ...prev,
-            currentSession: session,
-            checkingCurrent: false,
-            showNewSessionForm: true,
-          }));
-          return;
-        }
-
-        // 「続きから」で来た場合は、そのまま会話履歴の読み込みまで進める
-        if (initialStartMode === "resume" && session) {
-          setState((prev) => ({
-            ...prev,
-            currentSession: session,
-            checkingCurrent: false,
-            session,
-            loadingMessages: true,
-          }));
-          const page = await listAnalysisMessages(session.id);
+      // 特定セッションへの直接遷移（経験カードからの「続きから」）は一覧取得を待たずに入る
+      if (initialAction?.type === "resume") {
+        try {
+          const session = await getAnalysisSession(initialAction.sessionId);
+          if (cancelled) return;
+          setState((prev) => ({ ...prev, loadingResumable: false }));
+          await loadMessagesInto(session);
+        } catch (err) {
           if (!cancelled) {
-            setState((prev) => ({ ...prev, messages: page.items, loadingMessages: false }));
+            setState((prev) => ({ ...prev, loadingResumable: false, error: toFormError(err) }));
           }
-          return;
         }
+        return;
+      }
 
-        setState((prev) => ({ ...prev, currentSession: session, checkingCurrent: false }));
+      try {
+        const { items } = await listAnalysisSessions({ statuses: RESUMABLE_STATUSES });
+        if (cancelled) return;
+        setState((prev) => ({
+          ...prev,
+          resumableSessions: items,
+          loadingResumable: false,
+          // 「初めから」で来た場合、または再開できるセッションが1件もない場合は選択を飛ばす
+          showNewSessionForm: initialAction?.type === "new" || items.length === 0,
+        }));
       } catch (err) {
         if (!cancelled) {
-          setState((prev) => ({
-            ...prev,
-            checkingCurrent: false,
-            loadingMessages: false,
-            error: toFormError(err),
-          }));
+          setState((prev) => ({ ...prev, loadingResumable: false, error: toFormError(err) }));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [initialStartMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialActionは初回遷移時の値のみ使う
+  }, []);
 
-  // 「続きから」: 新規にPOSTはせず、/current で取得済みのセッションをそのまま使って会話履歴を読み込む
-  const resumeCurrentSession = useCallback(async () => {
-    const target = state.currentSession;
-    if (!target) return;
-    setState((prev) => ({ ...prev, session: target, loadingMessages: true, error: null }));
-    try {
-      const page = await listAnalysisMessages(target.id);
-      setState((prev) => ({ ...prev, messages: page.items, loadingMessages: false }));
-    } catch (err) {
-      setState((prev) => ({ ...prev, loadingMessages: false, error: toFormError(err) }));
-    }
-  }, [state.currentSession]);
+  // 一覧から特定のセッションを選んで続きから始める
+  const resumeSession = useCallback(
+    async (sessionId: string) => {
+      const target = state.resumableSessions.find((item) => item.id === sessionId);
+      if (target) {
+        await loadMessagesInto(target);
+        return;
+      }
+      // 一覧に無い場合（他画面からの直接指定など）は取得してから読み込む
+      try {
+        const session = await getAnalysisSession(sessionId);
+        await loadMessagesInto(session);
+      } catch (err) {
+        setState((prev) => ({ ...prev, error: toFormError(err) }));
+      }
+    },
+    [state.resumableSessions, loadMessagesInto],
+  );
 
   // 「初めから」の選択。ここではまだAPIを呼ばず、新規セッション作成フォームを表示するだけにする
   const chooseStartNew = useCallback(() => {
     setState((prev) => ({ ...prev, showNewSessionForm: true }));
   }, []);
 
-  // セッション開始（SessionStartForm送信時に呼ばれる）。
-  // startModeは呼び出し元に選ばせず、進行中セッションの有無から自動で決める:
-  //   進行中セッションなし         → START_NEW
-  //   進行中セッションあり(初めから) → RESTART_ACTIVE（旧セッションはABANDONEDになる）
-  const startSession = useCallback(
-    async (title: string, targetAxes: SelfAnalysisAxis[]): Promise<boolean> => {
-      setState((prev) => ({ ...prev, startingSession: true, error: null }));
-      try {
-        const session = await createAnalysisSession({
-          startMode: state.currentSession ? "RESTART_ACTIVE" : "START_NEW",
-          // 空文字ならタイトル未指定としてサーバー側のデフォルト（「自己分析」）に任せる
-          title: title.trim() === "" ? undefined : title,
-          // 未選択（0件）ならtargetAxesも省略し、サーバー側デフォルトの4軸全部に任せる
-          targetAxes: targetAxes.length > 0 ? targetAxes : undefined,
-        });
-        setState((prev) => ({ ...prev, session, startingSession: false, loadingMessages: true }));
+  // セッション一覧の選択画面へ戻る（進行中のチャットから離脱する）
+  const backToSessionList = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      session: null,
+      showNewSessionForm: false,
+      messages: [],
+      assessments: [],
+    }));
+  }, []);
 
-        const page = await listAnalysisMessages(session.id);
-        setState((prev) => ({ ...prev, messages: page.items, loadingMessages: false }));
-        return true;
-      } catch (err) {
-        setState((prev) => ({
-          ...prev,
-          startingSession: false,
-          loadingMessages: false,
-          error: toFormError(err),
-        }));
-        return false;
-      }
-    },
-    [state.currentSession],
-  );
+  // セッション開始（SessionStartForm送信時に呼ばれる）。
+  // 複数セッションを同時に進行できるため、常にSTART_NEWで作成する
+  const startSession = useCallback(async (title: string): Promise<boolean> => {
+    setState((prev) => ({ ...prev, startingSession: true, error: null }));
+    try {
+      const session = await createAnalysisSession({
+        startMode: "START_NEW",
+        // 空文字ならタイトル未指定としてサーバー側のデフォルト（「自己分析」）に任せる
+        title: title.trim() === "" ? undefined : title,
+        // 4軸は事前に選ばせず、サーバー側デフォルト（4軸全部）に任せる
+      });
+      setState((prev) => ({
+        ...prev,
+        startingSession: false,
+        resumableSessions: [session, ...prev.resumableSessions],
+      }));
+      await loadMessagesInto(session);
+      return true;
+    } catch (err) {
+      setState((prev) => ({ ...prev, startingSession: false, error: toFormError(err) }));
+      return false;
+    }
+  }, [loadMessagesInto]);
 
   // メッセージ送信。clientMessageIdは呼び出し側（page.tsx）で毎回新規発行してもらい、
   // ここではそのまま送信するだけにする（二重送信防止のIDはUI操作のタイミングに依存するため）
@@ -504,6 +515,8 @@ export function useAnalysisChat(initialStartMode?: InitialStartMode) {
         finalizingSession: false,
         recomputeFailed: !recomputed,
         session: prev.session ? { ...prev.session, status: "COMPLETED" } : null,
+        // 完了したセッションは「続きから」の一覧から外す
+        resumableSessions: prev.resumableSessions.filter((item) => item.id !== session.id),
       }));
       return true;
     } catch (err) {
@@ -523,8 +536,9 @@ export function useAnalysisChat(initialStartMode?: InitialStartMode) {
     hasStaleAssessment,
     canFinalize:
       state.assessments.length > 0 && unreviewedAxes.length === 0 && !hasStaleAssessment,
-    resumeCurrentSession,
+    resumeSession,
     chooseStartNew,
+    backToSessionList,
     startSession,
     sendMessage,
     createDraft,

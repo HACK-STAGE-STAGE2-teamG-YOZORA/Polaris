@@ -18,6 +18,8 @@ interface ExperienceListItemProps {
   experience: ExperienceResponse;
   onEdit: () => void;
   onDelete: () => void;
+  // sourceSessionIdがある経験だけ「そのセッションの結果を見る」を出す(フォーム作成の経験にはない)
+  onViewSession?: (sessionId: string) => void;
   deleting: boolean;
   disabled: boolean;
 }
@@ -27,6 +29,7 @@ export function ExperienceListItem({
   experience,
   onEdit,
   onDelete,
+  onViewSession,
   deleting,
   disabled,
 }: ExperienceListItemProps) {
@@ -91,6 +94,17 @@ export function ExperienceListItem({
           >
             {confirmed ? "内容を見る・修正する" : "確認して確定する"}
           </Button>
+          {experience.sourceSessionId && onViewSession && (
+            <Button
+              size="small"
+              variant="text"
+              onClick={() => onViewSession(experience.sourceSessionId!)}
+              disabled={disabled}
+              sx={{ color: CHAT_COLORS.orange }}
+            >
+              このセッションの結果を見る
+            </Button>
+          )}
           <Button
             size="small"
             variant="text"

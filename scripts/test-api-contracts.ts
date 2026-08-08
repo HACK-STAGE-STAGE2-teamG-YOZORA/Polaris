@@ -59,16 +59,35 @@ await withE2eServer(async ({ request, schemaName }) => {
     body: { startMode: 'START_NEW', title: '契約テスト1' },
   }), 201, 'create first session');
   assert(typeof firstSession.id === 'string', 'first session idがありません。');
-  expectStatus(await request('/api/v1/analysis-sessions', {
+  // 複数セッションの同時進行を許可する: 進行中セッションがあってもSTART_NEWは常に201で新規作成できる
+  const secondActiveSession = expectStatus(await request('/api/v1/analysis-sessions', {
     method: 'POST',
     body: { startMode: 'START_NEW', title: '重複開始' },
-  }), 409, 'active session conflict');
+  }), 201, 'concurrent active session allowed');
+  const activeList = expectStatus(
+    await request('/api/v1/analysis-sessions?status=ACTIVE&status=READY_TO_FINALIZE'),
+    200,
+    'list active sessions with repeated status',
+  );
+  assert(Array.isArray(activeList.items), 'activeList.itemsが配列ではありません。');
+  const activeIds = (activeList.items as JsonObject[]).map((item) => String(item.id));
+  assert(
+    activeIds.includes(String(firstSession.id)) && activeIds.includes(String(secondActiveSession.id)),
+    '複数の進行中セッションが一覧に含まれていません。',
+  );
 
   const session = expectStatus(await request('/api/v1/analysis-sessions', {
     method: 'POST',
     body: { startMode: 'RESTART_ACTIVE', title: '契約テスト2' },
   }), 201, 'restart session');
   const sessionId = String(session.id);
+  const abandonedList = expectStatus(await request('/api/v1/analysis-sessions?status=ABANDONED'), 200, 'list abandoned sessions');
+  assert(Array.isArray(abandonedList.items), 'abandonedList.itemsが配列ではありません。');
+  const abandonedIds = (abandonedList.items as JsonObject[]).map((item) => String(item.id));
+  assert(
+    abandonedIds.includes(String(firstSession.id)) && abandonedIds.includes(String(secondActiveSession.id)),
+    'RESTART_ACTIVEで既存の進行中セッションがABANDONEDになっていません。',
+  );
   expectStatus(await request(`/api/v1/analysis-sessions/${sessionId}`), 200, 'get session');
   const otherSession = expectStatus(await request('/api/v1/analysis-sessions', {
     method: 'POST',

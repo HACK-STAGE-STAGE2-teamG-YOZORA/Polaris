@@ -1,5 +1,7 @@
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
@@ -8,61 +10,117 @@ import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { AnalysisSession } from "@/types/analysis-session";
 
 interface StartModeChoiceProps {
-  session: AnalysisSession;
-  onResume: () => void;
+  // ユーザーは複数のセッションを同時に進行できるため一覧で受け取る
+  resumableSessions: AnalysisSession[];
+  onResume: (sessionId: string) => void;
   onStartNew: () => void;
   busy: boolean;
 }
 
-// 「チャット開始選択」画面。GET /analysis-sessions/current で進行中セッションが
-// 見つかった場合にだけ表示する。「続きから」は既存セッションをそのまま使い（POSTしない）、
-// 「初めから」はSessionStartFormへ進んでRESTART_ACTIVEでPOSTする
-export function StartModeChoice({ session, onResume, onStartNew, busy }: StartModeChoiceProps) {
+// 「チャット開始選択」画面。GET /analysis-sessions?status=ACTIVE&status=READY_TO_FINALIZE で
+// 取得した進行中セッション一覧から個別に「続きから」を選べる。
+// 「初めから」は常にSTART_NEWで新しいセッションを作る（他のセッションを破棄しない）
+export function StartModeChoice({ resumableSessions, onResume, onStartNew, busy }: StartModeChoiceProps) {
   return (
-    <Box
-      sx={{
-        borderRadius: 3,
-        border: `1px solid ${CHAT_COLORS.navyBorder}`,
-        bgcolor: CHAT_COLORS.navySurface,
-        p: 2.5,
-      }}
-    >
-      <Stack spacing={2}>
-        <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
-          進行中のセッションがあります
-        </Typography>
-        <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
-          {session.title}（最終更新: {formatLocalDateTime(session.updatedAt)}）
-        </Typography>
-        <Stack direction="row" spacing={1}>
+    <Stack spacing={2}>
+      {resumableSessions.length > 0 && (
+        <Box
+          sx={{
+            borderRadius: 3,
+            border: `1px solid ${CHAT_COLORS.navyBorder}`,
+            bgcolor: CHAT_COLORS.navySurface,
+            p: 2.5,
+          }}
+        >
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
+              進行中の自己分析が{resumableSessions.length}件あります
+            </Typography>
+            {resumableSessions.map((session) => (
+              <Box
+                key={session.id}
+                sx={{
+                  borderRadius: 2,
+                  border: `1px solid ${CHAT_COLORS.navyBorder}`,
+                  p: 1.5,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 1,
+                  flexWrap: "wrap",
+                }}
+              >
+                <Stack spacing={0.25}>
+                  <Typography variant="body1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 600 }}>
+                    {session.title}
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                    <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
+                      最終更新: {formatLocalDateTime(session.updatedAt)}
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={`発言 ${session.progress.userMessageCount}件`}
+                      sx={{ bgcolor: "transparent", color: CHAT_COLORS.textOnDarkMuted, border: `1px solid ${CHAT_COLORS.navyBorder}` }}
+                    />
+                    {session.status === "READY_TO_FINALIZE" && (
+                      <Chip size="small" label="結果生成済み" sx={{ bgcolor: CHAT_COLORS.orangeMuted, color: CHAT_COLORS.orange }} />
+                    )}
+                  </Stack>
+                </Stack>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={() => onResume(session.id)}
+                  disabled={busy}
+                  startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
+                  sx={{
+                    bgcolor: CHAT_COLORS.orange,
+                    color: CHAT_COLORS.bubbleText,
+                    fontWeight: 700,
+                    borderRadius: "999px",
+                    "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
+                  }}
+                >
+                  続きから
+                </Button>
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      )}
+
+      <Box
+        sx={{
+          borderRadius: 3,
+          border: `1px solid ${CHAT_COLORS.orange}`,
+          bgcolor: CHAT_COLORS.orangeMuted,
+          p: 2.5,
+          textAlign: "center",
+        }}
+      >
+        <Stack spacing={1.5} sx={{ alignItems: "center" }}>
+          <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDark }}>
+            新しい経験について話したいときは、ここから始められます。
+          </Typography>
           <Button
             variant="contained"
-            onClick={onResume}
+            size="large"
+            onClick={onStartNew}
             disabled={busy}
             sx={{
               bgcolor: CHAT_COLORS.orange,
               color: CHAT_COLORS.bubbleText,
               fontWeight: 700,
               borderRadius: "999px",
+              px: 4,
               "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
-            }}
-          >
-            続きから
-          </Button>
-          <Button
-            variant="outlined"
-            onClick={onStartNew}
-            disabled={busy}
-            sx={{
-              color: CHAT_COLORS.orange,
-              borderColor: CHAT_COLORS.orange,
-              borderRadius: "999px",
             }}
           >
             初めから
           </Button>
         </Stack>
-      </Stack>
-    </Box>
+      </Box>
+    </Stack>
   );
 }

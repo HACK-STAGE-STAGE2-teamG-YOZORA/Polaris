@@ -19,6 +19,7 @@ import { ExperienceListItem } from "./components/ExperienceListItem";
 import { useExperiences } from "./use-experiences";
 import type { ExperienceFilter } from "./use-experiences";
 import { ExperienceCardForm } from "@/app/components/ExperienceCardForm";
+import { SessionReportDialog } from "@/app/components/SessionReportDialog";
 import { ANALYSIS_CHAT_PATH, SYSTEM_STATUS_PATH } from "@/shared/routes";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 
@@ -52,6 +53,8 @@ export default function ExperiencesPage() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const pendingDelete = items.find((item) => item.id === pendingDeleteId) ?? null;
   const editing = items.find((item) => item.id === editingId) ?? null;
+  // 「このセッションの結果を見る」で開くダイアログの対象セッションID
+  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
 
   return (
     <Box
@@ -169,6 +172,7 @@ export default function ExperiencesPage() {
                 experience={experience}
                 onEdit={() => startEdit(experience.id)}
                 onDelete={() => setPendingDeleteId(experience.id)}
+                onViewSession={setViewingSessionId}
                 deleting={deletingId === experience.id}
                 disabled={saving || deletingId !== null}
               />
@@ -197,6 +201,14 @@ export default function ExperiencesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {viewingSessionId && (
+        <SessionReportDialog
+          open={viewingSessionId !== null}
+          sessionId={viewingSessionId}
+          onClose={() => setViewingSessionId(null)}
+        />
+      )}
     </Box>
   );
 }
