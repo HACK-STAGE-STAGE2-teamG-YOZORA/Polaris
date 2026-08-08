@@ -126,6 +126,9 @@ function AnalysisChatContent() {
   const [draftContent, setDraftContent] = useState("");
   // 完了済みセッション一覧から「結果を見る」で開くダイアログの対象
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
+  // 完了済みセッションの結果画面から「続きから会話を再開する」を選んだかどうか。
+  // セッションが変わるたびリセットする(古いセッションの選択を引きずらないため)
+  const [continuingSessionId, setContinuingSessionId] = useState<string | null>(null);
 
   const handleStartSession = useCallback(
     (title: string) => {
@@ -145,7 +148,7 @@ function AnalysisChatContent() {
     }
   }, [draftContent, sendMessage]);
 
-  const completed = session?.status === "COMPLETED";
+  const completed = session?.status === "COMPLETED" && continuingSessionId !== session.id;
   const showPicker = !session && !loadingResumable && !showNewSessionForm;
   const showStartForm = !session && !loadingResumable && showNewSessionForm;
 
@@ -220,7 +223,7 @@ function AnalysisChatContent() {
             {completed ? (
               // 確定済みセッションは、結果を大きく見せるカードを主役にする
               // （終了案内・4択評価バナーは確定前の操作用なのでここでは出さない）
-              <SessionResultReveal sessionId={session.id} />
+              <SessionResultReveal sessionId={session.id} onContinue={() => setContinuingSessionId(session.id)} />
             ) : (
               <>
                 {loadingMessages ? (

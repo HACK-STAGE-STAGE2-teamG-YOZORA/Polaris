@@ -18,7 +18,14 @@ import type { SelfAnalysisReport } from "@/types/self-analysis-report";
 // セッション確定(finalize)直後・完了済みセッションを開いたときに表示する、
 // そのセッションの結果を大きく見せるカード。Homeの総合傾向と同じ見た目の軸バーを使い、
 // 下端はページ背景色へフェードさせて「結果に注目が集まる」演出にする
-export function SessionResultReveal({ sessionId }: { sessionId: string }) {
+interface SessionResultRevealProps {
+  sessionId: string;
+  // 「続きから会話を再開する」が押されたときの通知。再開すると4軸分析とレポートは
+  // 古い状態になり、再確定するまでは新しい結果が確定しない
+  onContinue: () => void;
+}
+
+export function SessionResultReveal({ sessionId, onContinue }: SessionResultRevealProps) {
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<SelfAnalysisReport | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -80,23 +87,35 @@ export function SessionResultReveal({ sessionId }: { sessionId: string }) {
 
           {!loading && report && <SessionReportContent report={report} />}
 
-          <Button
-            component={Link}
-            href={HOME_PATH}
-            variant="contained"
-            size="large"
-            sx={{
-              alignSelf: "center",
-              bgcolor: CHAT_COLORS.orange,
-              color: CHAT_COLORS.bubbleText,
-              fontWeight: 700,
-              borderRadius: "999px",
-              px: 4,
-              "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
-            }}
-          >
-            ホームへ戻る
-          </Button>
+          <Stack direction="row" spacing={1.5} sx={{ justifyContent: "center", flexWrap: "wrap" }}>
+            <Button
+              component={Link}
+              href={HOME_PATH}
+              variant="contained"
+              size="large"
+              sx={{
+                bgcolor: CHAT_COLORS.orange,
+                color: CHAT_COLORS.bubbleText,
+                fontWeight: 700,
+                borderRadius: "999px",
+                px: 4,
+                "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
+              }}
+            >
+              ホームへ戻る
+            </Button>
+            <Button
+              onClick={onContinue}
+              variant="outlined"
+              size="large"
+              sx={{ color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder, borderRadius: "999px", px: 4 }}
+            >
+              続きから会話を再開する
+            </Button>
+          </Stack>
+          <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted, textAlign: "center" }}>
+            会話を再開すると、この結果は再確定するまで古い状態として扱われます。
+          </Typography>
         </Stack>
       </Box>
 

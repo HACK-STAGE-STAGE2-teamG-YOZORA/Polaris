@@ -44,8 +44,15 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
       await tx.overallSelfAnalysisProfile.updateMany({ where: { userId: auth.userId, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
       await tx.esAnalysis.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
       await tx.esRevision.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      // 根拠不足(INSUFFICIENT_EVIDENCE)の軸は本人評価を求めないため、
+      // remaining のカウントから除外する(finalize routeの実装と揃える)
       const remaining = await tx.axisAssessment.count({
-        where: { sourceSessionId: existing.sourceSessionId, isStale: false, userAssessment: 'UNREVIEWED' },
+        where: {
+          sourceSessionId: existing.sourceSessionId,
+          isStale: false,
+          userAssessment: 'UNREVIEWED',
+          status: { not: 'INSUFFICIENT_EVIDENCE' },
+        },
       });
       const axisCount = await tx.axisAssessment.count({ where: { sourceSessionId: existing.sourceSessionId, isStale: false } });
       if (remaining === 0 && axisCount === SELF_ANALYSIS_AXES.length) {

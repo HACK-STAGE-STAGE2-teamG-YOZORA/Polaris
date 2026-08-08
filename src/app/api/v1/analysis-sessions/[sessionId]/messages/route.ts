@@ -44,8 +44,8 @@ export async function POST(request: Request, context: Context): Promise<Response
     }
     const session = await prisma.analysisSession.findFirst({ where: { id: sessionId, userId: auth.userId } });
     if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
-    if (session.status !== 'ACTIVE' && session.status !== 'READY_TO_FINALIZE') {
-      return problem(409, 'CONFLICT', '完了または破棄されたセッションには送信できません。');
+    if (session.status !== 'ACTIVE' && session.status !== 'READY_TO_FINALIZE' && session.status !== 'COMPLETED') {
+      return problem(409, 'CONFLICT', '破棄されたセッションには送信できません。');
     }
 
     if (clientMessageId) {
@@ -123,6 +123,19 @@ export async function POST(request: Request, context: Context): Promise<Response
           where: { sourceSessionId: sessionId, isStale: false },
           data: { isStale: true },
         });
+      } else if (session.status === 'COMPLETED') {
+        // 完了済みセッションを再開する場合、既存の4軸分析・レポートは会話内容と
+        // 食い違う可能性があるため古い状態にし、再度READY_TO_FINALIZEを経て
+        // 確定し直すまではACTIVEへ戻す(READY_TO_FINALIZE resumeと同じ扱い)
+        await tx.analysisSession.update({ where: { id: sessionId }, data: { status: 'ACTIVE', completedAt: null } });
+        await tx.axisAssessment.updateMany({
+          where: { sourceSessionId: sessionId, isStale: false },
+          data: { isStale: true },
+        });
+        await tx.selfAnalysisReport.updateMany({ where: { sourceSessionId: sessionId, isStale: false }, data: { isStale: true } });
+        await tx.overallSelfAnalysisProfile.updateMany({ where: { userId: auth.userId, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+        await tx.esAnalysis.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+        await tx.esRevision.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
       }
       return { userMessage, assistantMessage };
     });
