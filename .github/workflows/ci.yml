@@ -23,8 +23,22 @@ jobs:
     name: Deterministic checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: polaris
+          POSTGRES_PASSWORD: polaris_password
+          POSTGRES_DB: polaris_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
-      DATABASE_URL: file:./ci.db
+      DATABASE_URL: postgresql://polaris:polaris_password@localhost:5432/polaris_test?sslmode=disable
       LM_STUDIO_BASE_URL: http://127.0.0.1:1234
       LM_STUDIO_MODEL_ID: ci-placeholder
     steps:
@@ -48,6 +62,9 @@ jobs:
 
       - name: Generate Prisma Client
         run: npm run prisma:generate
+
+      - name: Apply committed Prisma migrations
+        run: npm run db:migrate:deploy
 
       - name: Run deterministic checks
         run: npm run test:ci

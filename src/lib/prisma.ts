@@ -1,9 +1,17 @@
 import { PrismaClient } from '../generated/prisma/client';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 function createPrismaClient() {
-  const url = process.env.DATABASE_URL ?? 'file:./data/polaris.db';
-  const adapter = new PrismaBetterSqlite3({ url });
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error('DATABASE_URL must be set to a PostgreSQL connection URL.');
+  }
+  const url = new URL(connectionString);
+  if (url.protocol !== 'postgresql:' && url.protocol !== 'postgres:') {
+    throw new Error('DATABASE_URL must use the postgresql: or postgres: protocol.');
+  }
+  const schema = url.searchParams.get('schema') ?? url.searchParams.get('search_path') ?? undefined;
+  const adapter = new PrismaPg({ connectionString }, schema ? { schema } : undefined);
   return new PrismaClient({ adapter });
 }
 

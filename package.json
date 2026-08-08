@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "prisma:generate": "prisma generate",
-    "db:push": "prisma db push",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "test:lm-studio": "node --env-file=.env scripts/test-lm-studio.ts",
     "test:structured-output": "node --env-file=.env scripts/test-structured-output.ts",
     "test:contracts": "python scripts/validate_contracts.py && node scripts/test-openapi-contracts.ts",
@@ -44,17 +45,18 @@
     "@lmstudio/sdk": "^1.5.0",
     "@mui/material": "^9.2.0",
     "@napi-rs/canvas": "^0.1.100",
-    "@prisma/adapter-better-sqlite3": "^7.9.1",
+    "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/jpn": "^1.0.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "better-sqlite3": "^13.0.3",
     "cheerio": "^1.1.2",
+    "dotenv": "^17.3.1",
     "google-auth-library": "^10.5.0",
     "next": "^16.3.0",
     "pdfjs-dist": "^5.4.394",
+    "pg": "^8.22.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.84.0",
@@ -63,15 +65,11 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
+    "@types/pg": "^8.21.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "pdf-lib": "^1.17.1",
     "prisma": "^7.9.1",
     "typescript": "^7.0.2"
-  },
-  "overrides": {
-    "@prisma/adapter-better-sqlite3": {
-      "better-sqlite3": "$better-sqlite3"
-    }
   }
 }
