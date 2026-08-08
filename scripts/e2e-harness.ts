@@ -1,12 +1,13 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { createServer } from "node:net";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { validateOpenApiResponse } from './openapi-contract.ts';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.ts';
 import { SESSION_COOKIE_NAME } from '../src/server/auth/config.ts';
 import { sha256Base64Url } from '../src/server/auth/crypto.ts';
+import pg from 'pg';
 
 const E2E_AUTH_TOKEN = 'polaris-default-e2e-session-token';
 
@@ -20,6 +21,7 @@ export type E2eContext = {
   baseUrl: string;
   userId: string;
   authCookie: string;
+  schemaName: string;
   request: (
     path: string,
     options?: {
@@ -111,59 +113,86 @@ async function stopServer(child: ChildProcess): Promise<void> {
   }
 }
 
+/**
+ * BASE_DATABASE_URLにスキーマパラメータを付与してE2E用の分離スキーマURLを生成する。
+ */
+function buildE2eDbUrl(schemaName: string): string {
+  const base = process.env.DATABASE_URL;
+  if (!base) throw new Error("DATABASE_URL が設定されていません。");
+  const url = new URL(base);
+  url.searchParams.set('schema', schemaName);
+  return url.toString();
+}
+
+/** ランダムなスキーマ名を生成する（PostgreSQLの識別子として有効な形式）。 */
+function randomSchemaName(): string {
+  const suffix = Math.random().toString(36).slice(2, 10);
+  return `e2e_${suffix}`;
+}
+
 export async function withE2eServer(
   test: (context: E2eContext) => Promise<void>,
   overrides: Record<string, string> = {},
-  setup?: (databaseUrl: string, userId: string) => Promise<void>,
+  setup?: (databaseUrl: string, userId: string, schemaName: string) => Promise<void>,
 ): Promise<void> {
   const tempParent = resolve(".tmp");
   await mkdir(tempParent, { recursive: true });
-  const tempRoot = await mkdtemp(join(tempParent, "polaris-e2e-"));
-  const databasePath = join(tempRoot, "polaris-e2e.db").replaceAll("\\", "/");
-  await writeFile(databasePath, "");
+
+  const schemaName = randomSchemaName();
+  const databaseUrl = buildE2eDbUrl(schemaName);
   const port = await availablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...overrides,
     APP_URL: baseUrl,
-    DATABASE_URL: `file:${databasePath}`,
+    DATABASE_URL: databaseUrl,
     NEXT_TELEMETRY_DISABLED: "1",
     NODE_ENV: "production",
   };
 
+  // E2E用スキーマの作成とクリーンアップ用の管理クライアント
+  const adminPool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   let child: ChildProcess | undefined;
 
   try {
+    // E2E用スキーマを作成
+    await adminPool.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
+
     prepareProject(env);
+
+    // PostgreSQL用のスキーマにテーブルを作成
     runNodeCli(
       "node_modules/prisma/build/index.js",
-      ["db", "push"],
+      ["db", "push", "--url", databaseUrl],
       env,
     );
-    const adapter = new PrismaBetterSqlite3({ url: env.DATABASE_URL as string });
+
+    // E2E用スキーマへ接続してセットアップデータを挿入
+    const adapter = new PrismaPg({ connectionString: databaseUrl });
     const authPrisma = new PrismaClient({ adapter });
     let defaultUserId: string;
     try {
       const defaultUser = await authPrisma.user.create({
         data: {
-          googleSubject: 'polaris-default-e2e-user',
-          email: 'default-e2e@example.com',
+          googleSubject: `polaris-default-e2e-user-${schemaName}`,
+          email: `default-e2e-${schemaName}@example.com`,
           displayName: '既定E2Eユーザー',
         },
       });
       defaultUserId = defaultUser.id;
+      const e2eAuthToken = `polaris-default-e2e-session-token-${schemaName}`;
       await authPrisma.authSession.create({
         data: {
           userId: defaultUser.id,
-          tokenHash: sha256Base64Url(E2E_AUTH_TOKEN),
+          tokenHash: sha256Base64Url(e2eAuthToken),
           expiresAt: new Date(Date.now() + 60 * 60 * 1000),
         },
       });
     } finally {
       await authPrisma.$disconnect();
     }
-    if (setup) await setup(env.DATABASE_URL as string, defaultUserId);
+    if (setup) await setup(databaseUrl, defaultUserId, schemaName);
 
     const output: string[] = [];
     child = spawn(
@@ -184,9 +213,10 @@ export async function withE2eServer(
     const recentLogs = () => output.join("").slice(-8_000);
     await waitForServer(baseUrl, child, recentLogs);
 
+    const e2eAuthToken = `polaris-default-e2e-session-token-${schemaName}`;
     const request: E2eContext["request"] = async (path, options = {}) => {
       const method = options.method ?? "GET";
-      const authCookie = `${SESSION_COOKIE_NAME}=${E2E_AUTH_TOKEN}`;
+      const authCookie = `${SESSION_COOKIE_NAME}=${e2eAuthToken}`;
       const response = await fetch(`${baseUrl}${path}`, {
         method,
         headers: {
@@ -217,7 +247,7 @@ export async function withE2eServer(
     };
 
     try {
-      await test({ baseUrl, userId: defaultUserId, authCookie: `${SESSION_COOKIE_NAME}=${E2E_AUTH_TOKEN}`, request });
+      await test({ baseUrl, userId: defaultUserId, authCookie: `${SESSION_COOKIE_NAME}=${e2eAuthToken}`, schemaName, request });
     } catch (error) {
       console.error("===== E2E server log (last 8000 chars) =====");
       console.error(recentLogs());
@@ -225,6 +255,13 @@ export async function withE2eServer(
     }
   } finally {
     if (child) await stopServer(child);
-    await rm(tempRoot, { recursive: true, force: true });
+    // E2E用スキーマを削除してクリーンアップ
+    try {
+      await adminPool.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+    } catch (e) {
+      console.warn(`E2Eスキーマ "${schemaName}" の削除に失敗しました:`, e);
+    }
+    await adminPool.end();
+    await rm(tempParent, { recursive: true, force: true });
   }
 }
