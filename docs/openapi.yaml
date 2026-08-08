@@ -83,7 +83,7 @@ paths:
       operationId: completeGoogleAuth
       summary: Google認証コールバックを処理する
       security: []
-      description: state、PKCE、IDトークンを検証し、ユーザーとアプリ内セッションを作成する。成功・認証失敗ともホームへリダイレクトし、失敗時は安全なauthErrorコードだけを付ける。
+      description: state、PKCE、IDトークンを検証し、ユーザーとアプリ内セッションを作成する。成功時はホーム、認証失敗時はログイン画面へリダイレクトし、失敗時は安全なauthErrorコードだけを付ける。
       x-priority: P1
       parameters:
         - name: code
@@ -100,7 +100,7 @@ paths:
             type: string
       responses:
         '307':
-          description: ホームへのリダイレクト
+          description: ホーム（成功時）またはログイン画面（失敗時）へのリダイレクト
           headers:
             Location:
               schema:

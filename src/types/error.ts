@@ -13,10 +13,15 @@ export type ErrorCode =
   | "AI_UNAVAILABLE"
   | "AI_TIMEOUT"
   | "AI_INVALID_OUTPUT"
+  | "AI_INPUT_TOO_LARGE"
   | "UNSAFE_URL"
   | "FETCH_FAILED"
   | "PAYLOAD_TOO_LARGE"
   | "UNSUPPORTED_MEDIA_TYPE"
+  | "AUTH_NOT_CONFIGURED"
+  | "AUTH_REQUIRED"
+  | "AUTH_FLOW_INVALID"
+  | "GOOGLE_AUTH_FAILED"
   | "INTERNAL_ERROR";
 
 // 全エンドポイント共通のエラーレスポンス形式（application/problem+json）
