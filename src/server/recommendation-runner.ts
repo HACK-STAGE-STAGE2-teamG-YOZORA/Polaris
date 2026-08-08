@@ -1,7 +1,7 @@
 import { LmStudioPolarisAiGateway } from '@/infrastructure/ai/lm-studio-ai-gateway';
 import { fetchCompanyUrl, SafeUrlFetchError } from '@/infrastructure/fetch/safe-url-fetcher';
 import { prisma } from '@/lib/prisma';
-import { stringArray } from '@/server/api';
+import { logSafeError, stringArray } from '@/server/api';
 import { persistCompanySource } from '@/server/company';
 import type { RecommendationWarning } from '@/server/recommendation';
 
@@ -10,9 +10,9 @@ const globalForRunner = globalThis as unknown as { polarisRecommendationRuns?: S
 const runningRunIds = globalForRunner.polarisRecommendationRuns ?? new Set<string>();
 globalForRunner.polarisRecommendationRuns = runningRunIds;
 
-export async function recoverOrphanedRecommendationRuns(): Promise<void> {
+export async function recoverOrphanedRecommendationRuns(userId: string): Promise<void> {
   const active = await prisma.recommendationRun.findMany({
-    where: { status: { in: [...ACTIVE_STATUSES] } },
+    where: { userId, status: { in: [...ACTIVE_STATUSES] } },
     select: { id: true },
   });
   const orphanedIds = active.map((run) => run.id).filter((id) => !runningRunIds.has(id));
@@ -48,7 +48,7 @@ async function processRecommendationRun(runId: string): Promise<void> {
     if (run.refreshOfficialSources) {
       ai = new LmStudioPolarisAiGateway();
       const companies = await prisma.company.findMany({
-        where: { id: { in: candidateCompanyIds } },
+        where: { userId: run.userId, id: { in: candidateCompanyIds } },
         orderBy: { createdAt: 'asc' },
       });
       for (const company of companies) {
@@ -97,10 +97,10 @@ async function processRecommendationRun(runId: string): Promise<void> {
     }
 
     const [report, experiences, companies] = await Promise.all([
-      prisma.selfAnalysisReport.findUnique({ where: { id: run.selfAnalysisReportId } }),
-      prisma.experience.findMany({ where: { status: 'CONFIRMED' }, orderBy: { createdAt: 'asc' } }),
+      prisma.selfAnalysisReport.findFirst({ where: { id: run.selfAnalysisReportId, sourceSession: { userId: run.userId } } }),
+      prisma.experience.findMany({ where: { userId: run.userId, status: 'CONFIRMED' }, orderBy: { createdAt: 'asc' } }),
       prisma.company.findMany({
-        where: { id: { in: candidateCompanyIds } },
+        where: { userId: run.userId, id: { in: candidateCompanyIds } },
         include: { sources: { include: { facts: true }, orderBy: { retrievedAt: 'desc' } } },
         orderBy: { createdAt: 'asc' },
       }),
@@ -217,7 +217,7 @@ async function processRecommendationRun(runId: string): Promise<void> {
       });
     });
   } catch (error) {
-    console.error('企業提案runner:', error);
+    logSafeError('企業提案runner', error);
     await prisma.recommendationRun.updateMany({
       where: { id: runId, status: { in: [...ACTIVE_STATUSES] } },
       data: { status: 'FAILED', completedAt: new Date() },

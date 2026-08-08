@@ -1,7 +1,8 @@
 import { iso } from './api';
+import { normalizeLocalLmStudioBaseUrl } from '@/infrastructure/ai/local-endpoint';
 
 export type LmStudioStatus = {
-  status: 'CONNECTED' | 'SERVER_UNREACHABLE' | 'MODEL_NOT_LOADED' | 'INVALID_RESPONSE';
+  status: 'CONNECTED' | 'SERVER_UNREACHABLE' | 'MODEL_NOT_LOADED' | 'INVALID_RESPONSE' | 'INVALID_CONFIGURATION';
   baseUrl: string;
   modelId?: string;
   contextLength?: number;
@@ -10,11 +11,25 @@ export type LmStudioStatus = {
 };
 
 export async function checkLmStudio(): Promise<LmStudioStatus> {
-  const baseUrl = (process.env.LM_STUDIO_BASE_URL ?? 'http://127.0.0.1:1234').replace(/\/$/, '');
   const configuredModel = process.env.LM_STUDIO_MODEL_ID;
   const checkedAt = iso(new Date());
+  let baseUrl: string;
   try {
-    const response = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(3000), cache: 'no-store' });
+    baseUrl = normalizeLocalLmStudioBaseUrl(process.env.LM_STUDIO_BASE_URL);
+  } catch {
+    return {
+      status: 'INVALID_CONFIGURATION',
+      baseUrl: 'http://127.0.0.1:1234',
+      checkedAt,
+      guidance: ['LM_STUDIO_BASE_URLをhttp://127.0.0.1:<port>へ修正してください。'],
+    };
+  }
+  try {
+    const response = await fetch(`${baseUrl}/v1/models`, {
+      signal: AbortSignal.timeout(3000),
+      cache: 'no-store',
+      redirect: 'error',
+    });
     if (!response.ok) {
       return { status: 'INVALID_RESPONSE', baseUrl, checkedAt, guidance: ['LM Studio のローカルサーバー設定を確認してください。'] };
     }

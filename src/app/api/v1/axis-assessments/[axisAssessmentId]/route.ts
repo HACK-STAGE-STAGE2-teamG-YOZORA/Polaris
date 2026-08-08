@@ -2,12 +2,15 @@ import { prisma } from '@/lib/prisma';
 import { internalError, jsonBody, problem, SELF_ANALYSIS_AXES } from '@/server/api';
 import { deriveAxisStatus } from '@/server/axis';
 import { formatAxisAssessment } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 
 const USER_ASSESSMENTS = ['UNREVIEWED', 'MATCHES', 'PARTIALLY_MATCHES', 'DOES_NOT_MATCH', 'NEEDS_EXPLORATION'] as const;
 type Context = { params: Promise<{ axisAssessmentId: string }> };
 
 export async function PATCH(request: Request, context: Context): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { axisAssessmentId } = await context.params;
     const body = await jsonBody(request);
     if (!body || !USER_ASSESSMENTS.includes(body.assessment as never)) {
@@ -19,8 +22,8 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
     if (body.note !== undefined && (typeof body.note !== 'string' || body.note.length > 3000)) {
       return problem(422, 'VALIDATION_ERROR', 'note は3000文字以内で指定してください。');
     }
-    const existing = await prisma.axisAssessment.findUnique({
-      where: { id: axisAssessmentId },
+    const existing = await prisma.axisAssessment.findFirst({
+      where: { id: axisAssessmentId, sourceSession: { userId: auth.userId } },
       include: { evidenceLinks: { include: { evidence: true } } },
     });
     if (!existing) return problem(404, 'NOT_FOUND', '指定された4軸分析がありません。');
@@ -38,9 +41,9 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
         },
       });
       await tx.selfAnalysisReport.updateMany({ where: { sourceSessionId: existing.sourceSessionId, isStale: false }, data: { isStale: true } });
-      await tx.overallSelfAnalysisProfile.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-      await tx.esAnalysis.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-      await tx.esRevision.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.overallSelfAnalysisProfile.updateMany({ where: { userId: auth.userId, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.esAnalysis.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.esRevision.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
       const remaining = await tx.axisAssessment.count({
         where: { sourceSessionId: existing.sourceSessionId, isStale: false, userAssessment: 'UNREVIEWED' },
       });

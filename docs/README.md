@@ -56,9 +56,9 @@ npm.cmd run test:ai-schema
 npm.cmd run test:ai-p0
 ```
 
-- `test:contracts`: AI JSON Schema、OpenAPI内部参照、SQLite DDLを検証する。
+- `test:contracts`: AI JSON Schema、OpenAPI完全parse・内部参照、P0 Route対応、代表レスポンス、SQLite DDLを検証する。
 - `test:ai-schema`: LM Studio向けに簡略化した生成Schemaが、出力フィールド名を削除していないことを検証する。
-- `test:ai-p0`: 一時SQLite DBと一時Next.jsサーバーを使い、自己分析からES再検査までとAI異常系をHTTP経由で検証する。既存の開発DBは変更しない。
+- `test:ai-p0`: 一時SQLite DBと一時Next.jsサーバーを使い、複数セッションの自己分析、企業根拠付きES、再検査、提出可否までとAI異常系をHTTP経由で検証する。全レスポンスをOpenAPIへ照合し、既存の開発DBは変更しない。
 
 Redocly CLIによるlintは追加の任意検証であり、現在の`package.json`には依存関係として固定していない。
 

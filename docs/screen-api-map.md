@@ -13,13 +13,16 @@
 | 経験一覧 | 確認済み／下書きの管理 | `GET /experiences`, `GET/PATCH/DELETE /experiences/{id}` | P0 |
 | セッション4軸結果 | そのチャットの軸位置、コメント、左右・状況別根拠、本人評価 | `GET /axis-assessments`, `PATCH /axis-assessments/{id}`, `GET /self-analysis-reports/{id}` | P0 |
 | 企業情報 | 任意の企業、出典、抽出事実を確認 | `GET/POST /companies`, `POST /companies/{id}/sources/text` | P0任意 |
-| ES入力 | 設問・文字数・原文・任意の企業・経験を保存 | `GET/POST /es-documents`, `GET/PATCH /es-documents/{id}` | P0 |
+| ES入力 | 文章貼り付け、PNG/JPEG画像、PDFから原文を入力し、抽出文を確認後に設問・文字数・任意の企業・経験と保存 | `POST /es-text-extractions`, `GET/POST /es-documents`, `GET/PATCH /es-documents/{id}` | P0 |
 | ES検査結果 | 主張の根拠状態、問題箇所、コメントを表示 | `POST /es-documents/{id}/analyses` | P0 |
 | ES完成版 | そのまま提出可能な品質を目標にしたES案と、その下の根拠状態・問題箇所・改善理由コメントを表示 | `POST /es-documents/{id}/revisions`, `POST /es-revisions/{id}/verify` | P0 |
-| Googleログイン | Google認証、新規登録、ログアウト | P1着手時に認証APIを追加 | P1 |
+| Googleログイン | Google認証、新規登録、ログイン状態確認、ログアウト | `GET /auth/google/start`, `GET /auth/google/callback`, `GET /auth/session`, `POST /auth/logout` | P1 |
 | 企業提案 | 登録企業の公式情報に基づく本命／挑戦／意外枠 | `POST /company-recommendation-runs`, `GET /company-recommendation-runs/{id}` | P1 |
+| 面接準備 | 確認済み経験の深掘り質問と、公式企業情報に基づく逆質問 | `POST /interview-questions/generate` | P1 |
 
 パス表記では共通の`/api/v1`を省略している。
+
+起動確認とGoogle認証開始・コールバックを除く画面APIはログイン必須である。`GET /auth/session`が未認証を返した場合、個人データ画面を描画せずGoogleログイン画面へ案内する。
 
 ## 2. ホーム表示状態
 
@@ -93,6 +96,9 @@ ESは総合点を表示せず、設問回答状況、文字数、主張ごとの
 | 状況 | UI |
 |---|---|
 | AI処理中 | 二重送信不可にし、処理名と経過表示 |
+| ES文字抽出中 | ファイル名をログへ出さず、ページ処理中であることを表示して二重送信を防ぐ |
+| ES文字抽出完了 | 抽出文を編集可能な入力欄へ表示し、「内容を確認して保存してください」と明示 |
+| ES文字抽出失敗 | 選択済みファイルを勝手に再送せず、形式・10MB・PDF 10ページ・パスワード有無を確認する案内を表示 |
 | `AI_UNAVAILABLE` | LM Studio起動、Developer画面、Local Server、モデルロードの4手順 |
 | `AI_TIMEOUT` | 入力を保持し「再試行」。自動連打しない |
 | `AI_INVALID_OUTPUT` | 入力を保持し、出力を保存せず再試行可能 |
@@ -102,12 +108,15 @@ ESは総合点を表示せず、設問回答状況、文字数、主張ごとの
 | データ不足 | 「※データが少ないため、今後結果が変わる可能性があります」と件数を表示 |
 | 指摘範囲を特定できない | 原文ハイライトなしで対象文とコメントを表示 |
 
+完成版ES案はコピー可能な文章として表示する。画像化・PDF出力ボタンはP0へ含めない。
+
 ## 6. 代表デモデータ
 
 - 経験1: 一人で設計へ集中し、理解が深まることに満足した経験
 - 経験2: チームで小さく試し、利用者の反応から元気を得た経験
 - 経験3: 変化へ対応して成果は出たが、曖昧さで消耗した経験
 - 4軸結果: 一方へ寄る軸、両方の軸、状況依存の軸、根拠不足の軸を含む
+- ES入力ファイル: 同じ架空ES本文を含むPNG、文字PDF、画像PDFの3種類
 - ES原文: 確認済み数字1件、未確認の役割1件、抽象表現1件を含む
 - 企業情報を使うデモでは、架空企業の出典付き事実だけを使用する
 

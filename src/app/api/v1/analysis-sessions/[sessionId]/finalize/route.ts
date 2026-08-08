@@ -2,17 +2,20 @@ import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm
 import { prisma } from '@/lib/prisma';
 import { aiError, internalError, problem, SELF_ANALYSIS_AXES, stringArray } from '@/server/api';
 import { formatReport } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 
 type Context = { params: Promise<{ sessionId: string }> };
 
-export async function POST(_request: Request, context: Context): Promise<Response> {
+export async function POST(request: Request, context: Context): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { sessionId } = await context.params;
-    const session = await prisma.analysisSession.findUnique({ where: { id: sessionId } });
+    const session = await prisma.analysisSession.findFirst({ where: { id: sessionId, userId: auth.userId } });
     if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
-    if (session.status === 'COMPLETED' || session.status === 'ABANDONED') {
-      return problem(409, 'CONFLICT', '完了または破棄されたセッションは確定できません。');
+    if (session.status !== 'READY_TO_FINALIZE') {
+      return problem(409, 'CONFLICT', '4軸を生成し、すべて本人評価してから確定してください。');
     }
     const [userMessageCount, assessments, experiences, existingReport] = await Promise.all([
       prisma.message.count({ where: { sessionId, role: 'USER' } }),
@@ -106,9 +109,9 @@ export async function POST(_request: Request, context: Context): Promise<Respons
         where: { id: sessionId },
         data: { status: 'COMPLETED', completedAt: generatedAt },
       });
-      await tx.overallSelfAnalysisProfile.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-      await tx.esAnalysis.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-      await tx.esRevision.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.overallSelfAnalysisProfile.updateMany({ where: { userId: auth.userId, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.esAnalysis.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.esRevision.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
       return saved;
     });
     return Response.json(formatReport(report));

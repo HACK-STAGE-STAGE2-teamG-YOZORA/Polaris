@@ -72,6 +72,8 @@ def validate_sqlite_schema() -> None:
         database.close()
 
     expected = {
+        "users",
+        "auth_sessions",
         "analysis_sessions",
         "messages",
         "experiences",

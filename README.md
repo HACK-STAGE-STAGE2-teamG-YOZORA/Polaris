@@ -16,6 +16,7 @@
 - AI出力のJSON Schema、参照ID、引用原文の検証
 - `/api/v1`の自己分析、経験、4軸、総合プロフィール、ES検査・推敲API
 - Prisma／SQLiteによるセッション、根拠、分析結果の永続化
+- Google OAuth 2.0／OpenID Connectによるログイン・新規登録・ログアウトAPI
 
 ## 初回セットアップ
 
@@ -28,6 +29,18 @@ npm.cmd run db:push
 
 `.env`の`LM_STUDIO_MODEL_ID`は、LM Studioで実際にロードするモデルIDと一致させてください。SQLiteの保存先を変更しない場合、`DATABASE_URL`は`.env.example`の既定値を使用できます。
 
+### Google認証の設定
+
+Google Cloud ConsoleでWebアプリケーション用のOAuthクライアントを作成し、承認済みリダイレクトURIへ次を完全一致で登録します。
+
+```text
+http://localhost:3000/api/v1/auth/google/callback
+```
+
+`.env`の`GOOGLE_OAUTH_CLIENT_ID`と`GOOGLE_OAUTH_CLIENT_SECRET`へ発行値を設定してください。`APP_URL`を変更した場合は、同じオリジンの`/api/v1/auth/google/callback`をGoogle側にも登録します。未設定時は既存P0機能を停止せず、認証開始APIだけが`AUTH_NOT_CONFIGURED`を返します。
+
+ログイン開始は`GET /api/v1/auth/google/start`、状態確認は`GET /api/v1/auth/session`、ログアウトは`POST /api/v1/auth/logout`です。Systemと認証開始・コールバック以外のAPIはログイン必須で、自己分析・経験・総合プロフィール・企業・ES・企業提案は認証ユーザーごとに分離されます。
+
 ## CI
 
 `develop`または`main`へのPull Requestとpushで、GitHub Actionsが次を自動実行します。
@@ -37,7 +50,7 @@ npm.cmd run test:ci
 npm.cmd run build
 ```
 
-`test:ci`は、型検査、OpenAPI／Prisma／実装の契約検査、AI出力スキーマ検査、AI安定化ユニットテスト、P1ユニットテストをまとめたLM Studio不要の検査です。実モデルを使うE2E・エラー・安定性テストはCIに含めず、LM Studioを起動した開発PCで実行します。
+`test:ci`は、型検査、OpenAPI／Prisma／Route／主要APIレスポンスの契約検査、PNG/PDF/OCR、AI入力上限、loopback限定、AI出力スキーマ、AI安定化、P1ユニットテストをまとめたLM Studio不要の検査です。実モデルを使うE2E・エラー・安定性テストはCIに含めず、LM Studioを起動した開発PCで実行します。
 
 ## LM Studioで試す
 
@@ -72,8 +85,9 @@ npm.cmd run test:ai-p0
 
 `test:ai-p0`は、一時SQLite DBと一時ポートのNext.jsサーバーを自動作成し、次をHTTP経由で検証して終了時に削除します。
 
-- 自己分析チャット、冪等再送、経験抽出・確認、4軸生成・本人評価、レポート確定、総合分析
-- ES原文検査、完成版生成、推敲後の独立再検査
+- 自己分析チャット、冪等再送、経験抽出・確認、追加回答後の再分析、4軸生成・本人評価、レポート確定、複数セッション総合分析
+- 経験0件の根拠不足結果、ADR-032のデータ不足／十分状態
+- 企業公式情報付きES原文検査、完成版生成、推敲後の独立再検査、提出可能状態
 - `AI_TIMEOUT`、`AI_INVALID_OUTPUT`、`AI_UNAVAILABLE`と、失敗時に部分データを保存しないこと
 
 AI Adapterは[`src/infrastructure/ai`](./src/infrastructure/ai/)にあり、Web実装時はRoute Handlerから直接プロンプトを呼ばず、`LmStudioPolarisAiGateway`をApplication Service経由で利用します。

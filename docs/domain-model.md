@@ -14,9 +14,13 @@
 | データ量表示 | 完了セッション数、USER発言数、確認済み経験数と不足警告 | 結果生成を禁止する条件ではなく、解釈上の注意として表示する |
 | 企業出典 | 企業ページや貼り付け文などの取得元 | `OFFICIAL`と未検証を区別する |
 | 企業事実 | 出典から抽出した最小単位の記述 | 出典IDと原文引用が必須 |
+| 面接質問セット | 確認済み経験と任意のES・公式企業情報から一時生成する深掘り質問・逆質問 | P1では永続化せず、質問ごとの根拠IDを応答へ含める |
+| ES文字抽出結果 | PNG/JPEG/PDFから一時的に得た編集前の文章 | 本人確認前のため事実・ES原文として保存しない |
 | ES主張 | ES文中の本人・企業・将来に関する検査単位 | 根拠との照合結果を4段階で保持する |
 | ES指摘範囲 | ES原文でコメントの対象となる文字範囲 | サーバーが原文との一致を検証できた場合のみ |
 | 推敲変更 | 原文の一部をどう変えたかとその理由 | 前後文、理由、根拠、採否を保持する |
+| ユーザー | Googleで本人確認されたPolaris利用者 | 検証済みIDトークンの`sub`と確認済みメールを持つこと |
+| 認証セッション | ログイン後にPolarisが発行する失効可能なセッション | Cookie原文のSHA-256ハッシュがDBにあり、有効期限内であること |
 
 ## 2. 独自4軸
 
@@ -64,6 +68,13 @@
 
 ```mermaid
 erDiagram
+    USER ||--o{ AUTH_SESSION : has
+    USER ||--o{ ANALYSIS_SESSION : owns
+    USER ||--o{ EXPERIENCE : owns
+    USER ||--o{ OVERALL_SELF_ANALYSIS_PROFILE : owns
+    USER ||--o{ COMPANY : owns
+    USER ||--o{ ES_DOCUMENT : owns
+    USER ||--o{ RECOMMENDATION_RUN : owns
     ANALYSIS_SESSION ||--o{ MESSAGE : contains
     ANALYSIS_SESSION ||--o{ EXPERIENCE : produces
     EXPERIENCE ||--o{ AXIS_EVIDENCE_ITEM : yields
@@ -90,7 +101,7 @@ erDiagram
 stateDiagram-v2
     [*] --> ACTIVE
     ACTIVE --> READY_TO_FINALIZE: USER回答1件以上・4軸分析済み・4軸すべて本人評価済み
-    READY_TO_FINALIZE --> ACTIVE: 追加質問を続ける
+    READY_TO_FINALIZE --> ACTIVE: 追加質問を続ける（既存4軸をSTALE化）
     ACTIVE --> ABANDONED: 進行中に「初めから」を選択
     READY_TO_FINALIZE --> ABANDONED: 進行中に「初めから」を選択
     READY_TO_FINALIZE --> COMPLETED: 終了確認後のfinalize成功
@@ -99,6 +110,8 @@ stateDiagram-v2
 ```
 
 同一ユーザーについて、`ACTIVE`または`READY_TO_FINALIZE`は最大1件とする。P0の単一ユーザーでもこの制約を守る。
+
+`READY_TO_FINALIZE`から会話を再開した場合、それまでの4軸分析は追加回答を含まないため`isStale=true`にする。finalizeは`READY_TO_FINALIZE`からだけ許可し、再開後は4軸の再生成と全軸の本人評価をやり直す。
 
 「続きから」は進行中セッションとメッセージを取得する。「初めから」は進行中セッションを`ABANDONED`にし、新しいセッションを同一トランザクションで作る。完了済みレポートと確認済み経験は削除しないが、過去経験を新セッション固有の4軸分析へは含めない。過去分はホーム総合プロフィールとES生成では引き続き使用する。
 
@@ -138,6 +151,8 @@ stateDiagram-v2
 - `INSUFFICIENT_EVIDENCE`
 
 ### ES文書
+
+文章貼り付けは入力欄で確認後にそのまま保存できる。PNG/JPEG/PDFは文字抽出APIの結果を同じ入力欄へ展開し、ユーザーが確認・修正した後に限り`ES_DOCUMENT`を作成する。抽出結果は永続リソースではなく、元ファイル・中間画像・未確認の抽出文はDBへ保存しない。入力経路にかかわらず、保存後の正本は`originalText`である。
 
 ```mermaid
 stateDiagram-v2
@@ -200,7 +215,7 @@ finalize成功時に、そのセッションについて次を不変スナップ
 
 ホーム総合プロフィールは、全`COMPLETED`セッションのレポート、全`CONFIRMED`経験、正式な軸根拠、本人評価を入力として再計算し、次を現在値として保存する。
 
-P0は単一ユーザーのため、総合プロフィールは`id=default`の1行をupsertし、過去の総合プロフィール履歴は持たない。元となるセッションレポートは保持する。
+総合プロフィールは`user_id`ごとに1行をupsertし、同じユーザーの過去の総合プロフィール履歴は持たない。元となるセッションレポートはユーザーごとに保持する。
 
 - 4軸それぞれの総合位置、コメント、根拠ID、参照セッションID
 - 全体要約
@@ -242,6 +257,7 @@ ES指摘範囲はUnicodeコードポイント基準の`startOffset`（含む）�
 - 推敲後は必ず新しい主張を再抽出し、原文と同じ照合を行う。
 - 数値点数を生成せず、根拠状態・問題箇所・改善理由で説明する。
 - 完成版ES案の直下に、再検査後の根拠状態、残る問題箇所、改善理由をAIコメントとして表示する。
+- 完成版ES案は`revisedText`の文章だけを返し、画像・PDFファイルを生成しない。
 - 設問回答、文字数、全主張の根拠を満たす場合だけ`READY_TO_SUBMIT`とし、満たさない場合は`NEEDS_REVIEW`とする。
 
 ## 10. 企業提案ルール（P1）
@@ -251,14 +267,26 @@ ES指摘範囲はUnicodeコードポイント基準の`startOffset`（含む）�
 - 公式出典から企業事実を更新してから提案する。
 - 適性率、内定確率、能力点数を表示しない。
 - 各提案には確認済み経験、公式出典、合いそうな条件、懸念、不明点、確認質問が必要。
+- 2件を返す場合は異なる枠、3件以上を返す場合は本命・挑戦・意外の3枠をすべて含める。
 
-## 11. 最小データベース表
+## 11. 面接質問ルール（P1）
+
+- 深掘り質問は入力した確認済み経験へ接続し、質問ごとに1件以上の経験IDを持つ。
+- ES指定時は、本人確認済みES内の曖昧な役割・判断・行動・成果を優先する。
+- 企業指定時の逆質問は公式企業情報だけを前提とし、質問ごとに1件以上の公式出典IDを持つ。
+- 企業未指定時の逆質問は自己分析上の希望条件と対象職種を確認する一般質問とし、企業出典IDを持たない。
+- 質問は適性率、能力点数、内定確率を生成せず、企業情報や本人経験を新たな事実として確定しない。
+- 質問セットはリクエスト時点の派生結果であり、P1ではDBへ保存しない。再利用時は最新コンテキストから再生成する。
+
+## 12. 最小データベース表
 
 実DDLは[database-schema.sql](./database-schema.sql)を参照する。
 
 | 表 | 役割 |
 |---|---|
-| `analysis_sessions` | 自己分析の進捗、再開、再開始、完了状態 |
+| `users` | Google `sub`を一意な外部識別子として持つ利用者 |
+| `auth_sessions` | ハッシュ化したアプリセッションと有効期限。Googleトークンは持たない |
+| `analysis_sessions` | ユーザー所有の自己分析の進捗、再開、再開始、完了状態 |
 | `messages` | 会話原文と未確認の軸根拠候補。根拠引用の最上流 |
 | `experiences` | 経験カード本体 |
 | `experience_quotes` | 経験と会話原文の対応 |
@@ -272,7 +300,7 @@ ES指摘範囲はUnicodeコードポイント基準の`startOffset`（含む）�
 | `company_facts` | 出典から抽出した事実 |
 | `recommendation_runs` | P1の企業提案ジョブ、進捗、警告 |
 | `company_recommendations` | P1の企業別提案、根拠、懸念、不明点 |
-| `es_documents` | 設問、文字数、ユーザー原文 |
+| `es_documents` | 設問、文字数、入力方法にかかわらず本人が確認したユーザー原文 |
 | `es_analyses` | 原文または訂正版の検査結果 |
 | `es_claims` | 文中主張、判定、任意の指摘範囲 |
 | `es_claim_evidence` | 主張と経験／企業事実の対応 |
@@ -280,3 +308,6 @@ ES指摘範囲はUnicodeコードポイント基準の`startOffset`（含む）�
 | `revision_changes` | 変更単位の理由、根拠、採否 |
 
 Prisma実装の正本は[`prisma/schema.prisma`](../prisma/schema.prisma)。`database-schema.sql`はレビュー用参照DDLであり、実migrationはPrisma Migrateで生成する。
+面接質問セットはP1では永続化しないため、最小データベース表へ追加しない。
+
+直接作成・検索される集約ルートは必須の`user_id`を持つ。メッセージ、軸分析、レポート、企業出典、ES分析・推敲などの子データは親リレーション経由で所有者を決定し、異なるユーザーの親同士を関連付けない。

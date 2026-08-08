@@ -3,6 +3,7 @@ import { fetchCompanyUrl, SafeUrlFetchError } from '@/infrastructure/fetch/safe-
 import { prisma } from '@/lib/prisma';
 import { aiError, internalError, jsonBody, problem } from '@/server/api';
 import { formatCompanyFact, formatCompanySource, persistCompanySource, validHttpUrl } from '@/server/company';
+import { requireAuth } from '@/server/auth/require-auth';
 
 type Context = { params: Promise<{ companyId: string }> };
 
@@ -17,6 +18,8 @@ function fetchError(error: SafeUrlFetchError): Response {
 export async function POST(request: Request, context: Context): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     if (process.env.COMPANY_URL_IMPORT_ENABLED === 'false') {
       return problem(503, 'FEATURE_DISABLED', '企業URL取り込みは現在無効です。');
     }
@@ -34,7 +37,7 @@ export async function POST(request: Request, context: Context): Promise<Response
     if (body.renderJavaScript === true) {
       return problem(422, 'VALIDATION_ERROR', 'JavaScriptレンダリングはP2機能のため現在は使用できません。');
     }
-    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    const company = await prisma.company.findFirst({ where: { id: companyId, userId: auth.userId } });
     if (!company) return problem(404, 'NOT_FOUND', '指定された企業がありません。');
 
     const fetched = await fetchCompanyUrl(body.url);

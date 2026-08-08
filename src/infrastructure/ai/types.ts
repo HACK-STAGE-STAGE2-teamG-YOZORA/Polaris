@@ -302,6 +302,51 @@ export type CompanyRecommendationsOutput = {
   excludedCompanies: Array<{ companyId: string; reason: string }>;
 };
 
+export type InterviewQuestionsInput = {
+  selfAnalysisReport: {
+    id: string;
+    summary: string;
+    mustConditions: unknown;
+    preferConditions: unknown;
+    avoidConditions: unknown;
+    verifyConditions: unknown;
+  };
+  confirmedExperiences: Array<{
+    id: string;
+    title: string;
+    situation: string;
+    role: string;
+    actions: string[];
+    result: string | null;
+  }>;
+  company: {
+    id: string;
+    name: string;
+    targetRole: string | null;
+    sources: Array<{
+      id: string;
+      facts: Array<{ id: string; category: string; fact: string; evidenceQuote: string }>;
+    }>;
+  } | null;
+  esDocument: { id: string; question: string; text: string } | null;
+  targetRole: string | null;
+  deepDiveCount: number;
+  reverseQuestionCount: number;
+};
+
+export type InterviewQuestionsOutput = {
+  deepDiveQuestions: Array<{
+    question: string;
+    purpose: string;
+    connectedExperienceIds: string[];
+  }>;
+  reverseQuestions: Array<{
+    question: string;
+    purpose: string;
+    companySourceIds: string[];
+  }>;
+};
+
 export type SourceEvidence = {
   sourceType: "EXPERIENCE" | "COMPANY_FACT";
   sourceId: string;
@@ -398,5 +443,9 @@ export type PolarisAiConfig = {
   taskMaxTokens: number;
   chatTimeoutMs: number;
   taskTimeoutMs: number;
+  esTimeoutMs: number;
   repairAttempts: number;
+  contextLength: number;
+  schemaReserveTokens: number;
+  estimatedCharsPerToken: number;
 };

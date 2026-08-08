@@ -2,12 +2,15 @@ import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm
 import { prisma } from '@/lib/prisma';
 import { aiError, EXPERIENCE_TYPES, internalError, jsonBody, problem } from '@/server/api';
 import { formatExperience } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 
 type Context = { params: Promise<{ sessionId: string }> };
 
 export async function POST(request: Request, context: Context): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { sessionId } = await context.params;
     const body = await jsonBody(request);
     const experienceType = body?.experienceType;
@@ -18,7 +21,7 @@ export async function POST(request: Request, context: Context): Promise<Response
     if (!Array.isArray(messageIds) || messageIds.length === 0 || !messageIds.every((id) => typeof id === 'string') || new Set(messageIds).size !== messageIds.length) {
       return problem(422, 'VALIDATION_ERROR', 'messageIds は重複のない1件以上のID配列で指定してください。');
     }
-    const session = await prisma.analysisSession.findUnique({ where: { id: sessionId } });
+    const session = await prisma.analysisSession.findFirst({ where: { id: sessionId, userId: auth.userId } });
     if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
     if (session.status !== 'ACTIVE' && session.status !== 'READY_TO_FINALIZE') {
       return problem(409, 'CONFLICT', '完了または破棄されたセッションから体験案は作成できません。');
@@ -42,6 +45,7 @@ export async function POST(request: Request, context: Context): Promise<Response
     const sourceMessageId = quotes.at(-1)?.messageId ?? ordered.filter((message) => message.role === 'USER').at(-1)!.id;
     const experience = await prisma.experience.create({
       data: {
+        userId: auth.userId,
         sourceSessionId: sessionId,
         sourceMessageId,
         type: draft.type,

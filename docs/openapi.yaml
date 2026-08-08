@@ -1,18 +1,20 @@
 openapi: 3.1.0
 info:
   title: Polaris API
-  version: 0.3.0
+  version: 0.7.0
   summary: 根拠付き自己分析とES推敲を行うローカルWebアプリのAPI契約
   description: |
     Polaris MVPのフロントエンドとバックエンド間の契約。
 
-    - 単一ユーザー・localhost運用を前提とし、認証は行わない。
+    - P1のGoogle認証で本人確認とアプリ内セッションを発行し、Systemと認証開始・コールバックを除くAPIはログインを必須とする。
     - AIが生成した経験・4軸分析は、ユーザーが確認するまで確定情報として扱わない。
     - 4軸は強制二択にせず、両方・状況依存・根拠不足を正式な結果として扱う。
     - 完了チャット1件につき自己分析結果を1件保存し、ホームとESでは全完了セッションを再利用する。
     - ホームは過去結果一覧ではなく、全履歴から再計算した4軸、強み、弱み・注意点を表示する。
-    - P0は単一デモユーザーとし、GoogleログインはP1で実装する。
+    - 業務データは認証ユーザーごとに分離し、他ユーザーのリソースIDを指定しても存在を示さず`404 NOT_FOUND`を返す。
     - ESの事実根拠には、確認済み経験と登録済み企業公式情報だけを使用する。
+    - ES原文は文章貼り付け、PNG/JPEG画像、PDFから入力でき、ファイル入力は抽出文を本人確認してから保存する。
+    - AIが返す完成版ES案は文章のみとし、画像・PDFファイルは生成しない。
     - `x-priority`がない操作はP0。`P1`・`P2`付き操作はP0完成後の拡張契約とする。
     - APIの日時はISO 8601 UTC、IDはUUID、JSONはUTF-8とする。
   contact:
@@ -22,8 +24,11 @@ info:
 servers:
   - url: http://localhost:3000
     description: ローカル開発・デモ環境
-security: []
+security:
+  - cookieAuth: []
 tags:
+  - name: Auth
+    description: Google OAuth 2.0／OpenID Connectとアプリ内セッション
   - name: System
     description: アプリ、DB、LM Studioの稼働状態
   - name: Dashboard
@@ -38,15 +43,129 @@ tags:
     description: 応募企業と根拠付き企業情報
   - name: Recommendations
     description: 登録済み候補企業の公式情報を取得して行う根拠付き提案
+  - name: Interview
+    description: 確認済み経験と任意の公式企業情報に基づく面接準備
   - name: ES
     description: ES文書、検査、推敲、再検査
 
 paths:
+  /api/v1/auth/google/start:
+    get:
+      tags: [Auth]
+      operationId: startGoogleAuth
+      summary: Google認証を開始する
+      security: []
+      description: PKCEとstateを生成してHttpOnly Cookieへ10分間保存し、Google認証画面へリダイレクトする。
+      x-priority: P1
+      responses:
+        '307':
+          description: Google認証画面へのリダイレクト
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+            Set-Cookie:
+              schema:
+                type: string
+        '503':
+          description: Google認証設定がない、または不正
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/google/callback:
+    get:
+      tags: [Auth]
+      operationId: completeGoogleAuth
+      summary: Google認証コールバックを処理する
+      security: []
+      description: state、PKCE、IDトークンを検証し、ユーザーとアプリ内セッションを作成する。成功・認証失敗ともホームへリダイレクトし、失敗時は安全なauthErrorコードだけを付ける。
+      x-priority: P1
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+      responses:
+        '307':
+          description: ホームへのリダイレクト
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+            Set-Cookie:
+              schema:
+                type: string
+        '503':
+          description: Google認証設定がない、または不正
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/session:
+    get:
+      tags: [Auth]
+      operationId: getAuthSession
+      summary: 現在のログイン状態を取得する
+      x-priority: P1
+      security:
+        - cookieAuth: []
+        - {}
+      responses:
+        '200':
+          description: 認証済み、または未認証の状態
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: 現在のアプリ内セッションを失効する
+      x-priority: P1
+      security:
+        - cookieAuth: []
+        - {}
+      responses:
+        '204':
+          description: ログアウト完了。未認証の場合も同じ応答とする。
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/system/health:
     get:
       tags: [System]
       operationId: getHealth
       summary: アプリの稼働状態を取得する
+      security: []
       responses:
         '200':
           description: 稼働状態。依存先の一部が停止していてもレスポンス自体は返す。
@@ -62,6 +181,7 @@ paths:
       tags: [System]
       operationId: getLmStudioStatus
       summary: LM Studioとの接続状態を取得する
+      security: []
       responses:
         '200':
           description: 接続確認結果
@@ -85,6 +205,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DashboardResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -94,7 +216,8 @@ paths:
       operationId: recomputeOverallSelfAnalysis
       summary: 全完了セッションからホーム用総合プロフィールを再計算する
       description: |
-        全セッションレポート、全確認済み経験、正式根拠、本人評価を再集計する。
+        全セッションレポート、全確認済み経験、正式根拠、本人評価を候補母集団として再集計する。
+        コンテキスト上限を超える場合は、新しいレポートと接続済み根拠を優先する。
         セッションの軸位置を数値化して平均せず、全根拠から4軸、強み、弱み・注意点を生成する。
         完了セッションが2件未満または確認済み経験が3件未満でも生成し、`isDataSparse=true`を返す。
       responses:
@@ -106,6 +229,8 @@ paths:
                 $ref: '#/components/schemas/OverallSelfAnalysisProfile'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -132,6 +257,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisSessionPage'
+        '422':
+          $ref: '#/components/responses/ValidationError'
     post:
       tags: [Self Analysis]
       operationId: createAnalysisSession
@@ -304,6 +431,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -320,6 +449,8 @@ paths:
       summary: 自己分析を完了し、4軸の自己分析レポートを作成する
       description: |
         終了確認後に呼ぶ。USERメッセージ1件以上、4軸分析、4軸すべての本人評価を必要とする。
+        セッション状態がREADY_TO_FINALIZEの場合だけ成功する。本人評価後に会話を続けた場合は、
+        既存4軸分析をSTALEとしてACTIVEへ戻すため、4軸の再生成と再評価が必要である。
         `UNREVIEWED`の軸が一つでもある場合は409を返す。
         確認済み経験が0件でも完了できるが、根拠のない軸はINSUFFICIENT_EVIDENCEとする。
         同一セッションへ作成できるレポートは1件だけである。
@@ -334,6 +465,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -807,6 +940,78 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/v1/interview-questions/generate:
+    post:
+      tags: [Interview]
+      operationId: generateInterviewQuestions
+      x-priority: P1
+      summary: 確認済み経験の深掘り質問と根拠付き逆質問を生成する
+      description: |
+        深掘り質問は確認済み経験IDへ、企業指定時の逆質問は対象企業の公式出典IDへ接続する。
+        ESを指定した場合は曖昧な役割・判断・成果の確認を優先する。結果は保存せず同期的に返す。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateInterviewQuestionsRequest'
+      responses:
+        '200':
+          description: 面接用の深掘り質問と逆質問
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterviewQuestionSet'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationOrAiInputTooLarge'
+        '502':
+          $ref: '#/components/responses/AiInvalidOutput'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+        '504':
+          $ref: '#/components/responses/AiTimeout'
+
+  /api/v1/es-text-extractions:
+    post:
+      tags: [ES]
+      operationId: extractEsText
+      summary: ES画像またはPDFから確認前の文章を抽出する
+      description: |
+        PNG/JPEGはローカルOCR、PDFは埋め込みテキスト抽出を優先し、必要なページだけローカルOCRを行う。
+        抽出結果は必ずユーザーが確認・修正してから`POST /es-documents`の`originalText`へ指定する。
+        アップロード元ファイル、未確認の抽出文、中間画像は永続化せず、外部OCR APIへ送信しない。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 最大10MB。PNG、JPEG、10ページ以下の暗号化されていないPDFのみ。
+      responses:
+        '200':
+          description: ユーザー確認前の文字抽出結果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsTextExtraction'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/es-documents:
     get:
       tags: [ES]
@@ -911,7 +1116,7 @@ paths:
       tags: [ES]
       operationId: analyzeEsDocument
       summary: ES原文の主張・根拠・文字数・設問適合性を検査する
-      description: 全確認済み経験・全セッション結果を候補として参照し、数値採点ではなく主張ごとの根拠状態、問題箇所、コメントを返す。
+      description: 全確認済み経験・全セッション結果を候補母集団とし、上限内で関連度の高い根拠を参照する。数値採点ではなく主張ごとの根拠状態、問題箇所、コメントを返す。
       responses:
         '201':
           description: 検査結果
@@ -923,6 +1128,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -936,8 +1143,8 @@ paths:
     post:
       tags: [ES]
       operationId: reviseEsDocument
-      summary: 全履歴を候補に、提出可能品質を目標とした完成版ES案を作成する
-      description: すべての経験を本文へ列挙せず、設問と文字数に最も合う確認済み経験を選ぶ。生成後はverifyが必要。
+      summary: 全履歴を候補母集団に、提出可能品質を目標とした完成版ES案を作成する
+      description: ユーザー指定と設問との関連度を優先し、すべての経験を本文へ列挙せず、設問と文字数に最も合う確認済み経験を選ぶ。生成後はverifyが必要。
       requestBody:
         required: false
         content:
@@ -955,6 +1162,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -980,6 +1189,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '502':
           $ref: '#/components/responses/AiInvalidOutput'
         '503':
@@ -1019,6 +1230,13 @@ paths:
           $ref: '#/components/responses/ValidationError'
 
 components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: polaris_session
+      description: Polarisが発行するHttpOnlyアプリ内セッションCookie
+
   parameters:
     SessionId:
       name: sessionId
@@ -1099,6 +1317,18 @@ components:
         default: 20
 
   responses:
+    Unauthorized:
+      description: 有効なアプリ内セッションがない
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            requestId: 0d42d9dd-7cc3-42bc-8bdb-67a991675d62
+            code: AUTH_REQUIRED
+            message: ログインが必要です。
+            retryable: false
+            details: []
     ValidationError:
       description: 入力形式または業務ルール違反
       content:
@@ -1149,6 +1379,12 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    ValidationOrAiInputTooLarge:
+      description: 入力形式違反、業務ルール違反、またはAIコンテキスト上限内へ安全に縮約できない入力
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     UnsafeUrl:
       description: SSRF対策または許可スキームのルールによりURLを拒否した
       content:
@@ -1175,6 +1411,38 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
 
   schemas:
+    AuthUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, avatarUrl]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: [string, 'null']
+        avatarUrl:
+          type: [string, 'null']
+          format: uri
+
+    AuthSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [authenticated, user, expiresAt]
+      properties:
+        authenticated:
+          type: boolean
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+
     HealthResponse:
       type: object
       required: [status, version, database, ai, timestamp]
@@ -1209,7 +1477,7 @@ components:
       properties:
         status:
           type: string
-          enum: [CONNECTED, SERVER_UNREACHABLE, MODEL_NOT_LOADED, INVALID_RESPONSE]
+          enum: [CONNECTED, SERVER_UNREACHABLE, MODEL_NOT_LOADED, INVALID_RESPONSE, INVALID_CONFIGURATION]
         baseUrl:
           type: string
           format: uri
@@ -2648,9 +2916,194 @@ components:
           type: string
           format: date-time
 
+    GenerateInterviewQuestionsRequest:
+      type: object
+      properties:
+        selfAnalysisReportId:
+          type: string
+          format: uuid
+          description: 省略時は最新かつ古くない自己分析レポートを使用する。
+        experienceIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          description: 省略時は確認済み経験を新しい順に最大20件使用する。
+          items:
+            type: string
+            format: uuid
+        companyId:
+          description: 逆質問の対象企業。省略時はESに紐づく企業を使用し、どちらもなければ一般逆質問を生成する。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        esDocumentId:
+          description: 深掘り対象にする任意のES文書。
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        targetRole:
+          anyOf:
+            - type: string
+              maxLength: 300
+            - type: 'null'
+        deepDiveCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+        reverseQuestionCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+
+    InterviewDeepDiveQuestion:
+      type: object
+      required: [question, purpose, connectedExperienceIds]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        purpose:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        connectedExperienceIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+
+    InterviewReverseQuestion:
+      type: object
+      required: [question, purpose, companySourceIds]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        purpose:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        companySourceIds:
+          type: array
+          uniqueItems: true
+          description: 企業未指定の一般逆質問では空配列。
+          items:
+            type: string
+            format: uuid
+
+    InterviewQuestionSet:
+      type: object
+      required:
+        - selfAnalysisReportId
+        - companyId
+        - esDocumentId
+        - targetRole
+        - deepDiveQuestions
+        - reverseQuestions
+        - generatedAt
+      properties:
+        selfAnalysisReportId:
+          type: string
+          format: uuid
+        companyId:
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        esDocumentId:
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        targetRole:
+          anyOf:
+            - type: string
+            - type: 'null'
+        deepDiveQuestions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/InterviewDeepDiveQuestion'
+        reverseQuestions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/InterviewReverseQuestion'
+        generatedAt:
+          type: string
+          format: date-time
+
     EsDocumentStatus:
       type: string
       enum: [DRAFT, ANALYZED, REVISED, VERIFIED]
+
+    EsInputSourceType:
+      type: string
+      enum: [PNG, JPEG, PDF]
+
+    EsTextExtractionMethod:
+      type: string
+      enum: [OCR, PDF_TEXT, PDF_TEXT_WITH_OCR]
+
+    EsTextExtraction:
+      type: object
+      required:
+        - sourceType
+        - extractionMethod
+        - originalFilename
+        - pageCount
+        - extractedText
+        - characterCount
+        - requiresReview
+        - warnings
+      properties:
+        sourceType:
+          $ref: '#/components/schemas/EsInputSourceType'
+        extractionMethod:
+          $ref: '#/components/schemas/EsTextExtractionMethod'
+        originalFilename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: 画面内の確認表示専用。DB・アプリケーションログへ保存しない。
+        pageCount:
+          description: PDFの場合はページ数、画像の場合は`null`。
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 10
+            - type: 'null'
+        extractedText:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          description: 未確認の抽出文。ユーザーが確認・修正するまでES原文として保存しない。
+        characterCount:
+          type: integer
+          minimum: 1
+          maximum: 20000
+        requiresReview:
+          type: boolean
+          const: true
+          description: OCRまたはPDF抽出結果の本人確認が必須であることを示す。
+        warnings:
+          type: array
+          maxItems: 20
+          description: 読み取り精度が低いページ、レイアウト崩れなどの確認事項。
+          items:
+            type: string
+            maxLength: 500
 
     EsDocumentSummary:
       type: object
@@ -2698,6 +3151,7 @@ components:
               type: string
               minLength: 1
               maxLength: 20000
+              description: 文章貼り付け、または画像/PDFから抽出後にユーザーが確認・修正したES原文。
             preferredExperienceIds:
               type: array
               uniqueItems: true
@@ -2745,6 +3199,7 @@ components:
           type: string
           minLength: 1
           maxLength: 20000
+          description: 文章貼り付け、または`EsTextExtraction.extractedText`をユーザーが確認・修正した文章。
         preferredExperienceIds:
           type: array
           uniqueItems: true
@@ -2785,6 +3240,7 @@ components:
           type: string
           minLength: 1
           maxLength: 20000
+          description: 入力方法にかかわらずユーザーが確認済みの文章。変更後は既存の検査・推敲結果を古くする。
         preferredExperienceIds:
           type: array
           uniqueItems: true
@@ -3052,7 +3508,7 @@ components:
           $ref: '#/components/schemas/ResultFreshness'
         revisedText:
           type: string
-          description: 提出可能品質を目標に生成した完成版ES案。verify完了前は提出可能と断定しない。
+          description: 提出可能品質を目標に生成した文章の完成版ES案。画像・PDFは生成せず、verify完了前は提出可能と断定しない。
         usedExperienceIds:
           type: array
           uniqueItems: true
@@ -3114,10 +3570,15 @@ components:
             - AI_UNAVAILABLE
             - AI_TIMEOUT
             - AI_INVALID_OUTPUT
+            - AI_INPUT_TOO_LARGE
             - UNSAFE_URL
             - FETCH_FAILED
             - PAYLOAD_TOO_LARGE
             - UNSUPPORTED_MEDIA_TYPE
+            - AUTH_NOT_CONFIGURED
+            - AUTH_REQUIRED
+            - AUTH_FLOW_INVALID
+            - GOOGLE_AUTH_FAILED
             - INTERNAL_ERROR
         message:
           type: string

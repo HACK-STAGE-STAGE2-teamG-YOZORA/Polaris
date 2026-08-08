@@ -1,4 +1,7 @@
 import { PolarisAiError } from '@/infrastructure/ai/lm-studio-ai-gateway';
+import { logSafeError } from '@/server/safe-log';
+
+export { logSafeError, safeErrorDiagnostic } from '@/server/safe-log';
 
 export const SELF_ANALYSIS_AXES = [
   'ENERGY_SOURCE',
@@ -35,7 +38,7 @@ export function problem(
 }
 
 export function internalError(error: unknown, operation: string): Response {
-  console.error(`${operation}:`, error);
+  logSafeError(operation, error);
   return problem(500, 'INTERNAL_ERROR', `${operation}中にエラーが発生しました。`);
 }
 
@@ -49,6 +52,9 @@ export function aiError(error: unknown): Response {
     }
     if (error.code === 'AI_TIMEOUT') {
       return problem(504, 'AI_TIMEOUT', error.message, { retryable: true });
+    }
+    if (error.code === 'AI_INPUT_TOO_LARGE') {
+      return problem(422, 'AI_INPUT_TOO_LARGE', error.message);
     }
     return problem(503, 'AI_UNAVAILABLE', error.message, { retryable: true });
   }

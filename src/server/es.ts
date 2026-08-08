@@ -2,6 +2,7 @@ import type { EsAnalysisInput, EsAnalysisOutput } from '@/infrastructure/ai/type
 import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { countCodePoints, iso, objectArray, stringArray } from './api';
+import { esSubmissionReadiness } from './es-readiness';
 
 type ClaimRecord = {
   id: string;
@@ -151,12 +152,12 @@ export const esDocumentInclude = {
   revisions: { include: revisionInclude, orderBy: { createdAt: 'desc' as const } },
 } as const;
 
-export async function validatePreferredExperiences(value: unknown): Promise<string[] | string> {
+export async function validatePreferredExperiences(value: unknown, userId: string): Promise<string[] | string> {
   if (value === undefined) return [];
   if (!Array.isArray(value) || !value.every((id) => typeof id === 'string') || new Set(value).size !== value.length) {
     return 'preferredExperienceIds は重複のないID配列で指定してください。';
   }
-  const count = await prisma.experience.count({ where: { id: { in: value }, status: 'CONFIRMED' } });
+  const count = await prisma.experience.count({ where: { userId, id: { in: value }, status: 'CONFIRMED' } });
   return count === value.length ? value : 'preferredExperienceIds には確認済み経験だけを指定してください。';
 }
 
@@ -165,14 +166,14 @@ export async function buildEsAnalysisInput(document: {
   question: string;
   characterLimit: number;
   preferredExperienceIds: unknown;
-}, text: string): Promise<EsAnalysisInput> {
+}, text: string, userId: string): Promise<EsAnalysisInput> {
   const [experiences, facts, reports, overallProfile] = await Promise.all([
-    prisma.experience.findMany({ where: { status: 'CONFIRMED' }, include: { quotes: true } }),
+    prisma.experience.findMany({ where: { userId, status: 'CONFIRMED' }, include: { quotes: true } }),
     document.companyId
-      ? prisma.companyFact.findMany({ where: { source: { companyId: document.companyId } }, include: { source: true } })
+      ? prisma.companyFact.findMany({ where: { source: { companyId: document.companyId, company: { userId } } }, include: { source: true } })
       : Promise.resolve([]),
-    prisma.selfAnalysisReport.findMany({ orderBy: { generatedAt: 'asc' } }),
-    prisma.overallSelfAnalysisProfile.findUnique({ where: { id: 'default' } }),
+    prisma.selfAnalysisReport.findMany({ where: { sourceSession: { userId } }, orderBy: { generatedAt: 'asc' } }),
+    prisma.overallSelfAnalysisProfile.findUnique({ where: { userId } }),
   ]);
   return {
     question: document.question,
@@ -250,9 +251,11 @@ export function normalizeEsOutput(output: EsAnalysisOutput, input: EsAnalysisInp
   }));
   const characterCount = countCodePoints(input.text);
   const withinCharacterLimit = characterCount <= input.characterLimit;
-  const submissionReadiness: 'READY_TO_SUBMIT' | 'NEEDS_REVIEW' = withinCharacterLimit && output.questionCoverage === 'ANSWERED' && claims.every((claim) => claim.status === 'VERIFIED')
-    ? 'READY_TO_SUBMIT'
-    : 'NEEDS_REVIEW';
+  const submissionReadiness = esSubmissionReadiness({
+    withinCharacterLimit,
+    questionCoverage: output.questionCoverage,
+    claimStatuses: claims.map((claim) => claim.status),
+  });
   const comments = [
     ...claims.map((claim) => ({
       category: 'EVIDENCE_STATUS',

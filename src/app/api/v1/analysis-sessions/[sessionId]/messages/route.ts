@@ -2,14 +2,17 @@ import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm
 import { prisma } from '@/lib/prisma';
 import { aiError, internalError, jsonBody, objectArray, page, problem, readPagination, stringArray } from '@/server/api';
 import { formatMessage } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 import type { SelfAnalysisAxis } from '@/types/dashboard';
 
 type Context = { params: Promise<{ sessionId: string }> };
 
 export async function GET(request: Request, context: Context): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { sessionId } = await context.params;
-    const session = await prisma.analysisSession.findUnique({ where: { id: sessionId }, select: { id: true } });
+    const session = await prisma.analysisSession.findFirst({ where: { id: sessionId, userId: auth.userId }, select: { id: true } });
     if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
     const { cursor, limit } = readPagination(request);
     const records = await prisma.message.findMany({
@@ -27,6 +30,8 @@ export async function GET(request: Request, context: Context): Promise<Response>
 export async function POST(request: Request, context: Context): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { sessionId } = await context.params;
     const body = await jsonBody(request);
     const content = typeof body?.content === 'string' ? body.content.trim() : '';
@@ -37,14 +42,14 @@ export async function POST(request: Request, context: Context): Promise<Response
     if (body?.clientMessageId !== undefined && !clientMessageId) {
       return problem(422, 'VALIDATION_ERROR', 'clientMessageId が不正です。');
     }
-    const session = await prisma.analysisSession.findUnique({ where: { id: sessionId } });
+    const session = await prisma.analysisSession.findFirst({ where: { id: sessionId, userId: auth.userId } });
     if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
     if (session.status !== 'ACTIVE' && session.status !== 'READY_TO_FINALIZE') {
       return problem(409, 'CONFLICT', '完了または破棄されたセッションには送信できません。');
     }
 
     if (clientMessageId) {
-      const existingUser = await prisma.message.findUnique({ where: { clientMessageId } });
+      const existingUser = await prisma.message.findFirst({ where: { clientMessageId, sessionId } });
       if (existingUser) {
         if (existingUser.sessionId !== sessionId || existingUser.role !== 'USER' || existingUser.content !== content) {
           return problem(409, 'CONFLICT', 'clientMessageId は別の送信で使用されています。');
@@ -114,6 +119,10 @@ export async function POST(request: Request, context: Context): Promise<Response
       });
       if (session.status === 'READY_TO_FINALIZE') {
         await tx.analysisSession.update({ where: { id: sessionId }, data: { status: 'ACTIVE' } });
+        await tx.axisAssessment.updateMany({
+          where: { sourceSessionId: sessionId, isStale: false },
+          data: { isStale: true },
+        });
       }
       return { userMessage, assistantMessage };
     });

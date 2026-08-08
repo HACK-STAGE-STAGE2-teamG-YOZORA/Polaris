@@ -2,6 +2,13 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
+import { validateOpenApiResponse } from './openapi-contract.ts';
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaClient } from '../src/generated/prisma/client.ts';
+import { SESSION_COOKIE_NAME } from '../src/server/auth/config.ts';
+import { sha256Base64Url } from '../src/server/auth/crypto.ts';
+
+const E2E_AUTH_TOKEN = 'polaris-default-e2e-session-token';
 
 export type ApiResult = {
   status: number;
@@ -11,9 +18,17 @@ export type ApiResult = {
 
 export type E2eContext = {
   baseUrl: string;
+  userId: string;
+  authCookie: string;
   request: (
     path: string,
-    options?: { method?: string; body?: unknown },
+    options?: {
+      method?: string;
+      body?: unknown;
+      formData?: FormData;
+      headers?: Record<string, string>;
+      authenticated?: boolean;
+    },
   ) => Promise<ApiResult>;
 };
 
@@ -99,7 +114,7 @@ async function stopServer(child: ChildProcess): Promise<void> {
 export async function withE2eServer(
   test: (context: E2eContext) => Promise<void>,
   overrides: Record<string, string> = {},
-  setup?: (databaseUrl: string) => Promise<void>,
+  setup?: (databaseUrl: string, userId: string) => Promise<void>,
 ): Promise<void> {
   const tempParent = resolve(".tmp");
   await mkdir(tempParent, { recursive: true });
@@ -126,7 +141,29 @@ export async function withE2eServer(
       ["db", "push"],
       env,
     );
-    if (setup) await setup(env.DATABASE_URL as string);
+    const adapter = new PrismaBetterSqlite3({ url: env.DATABASE_URL as string });
+    const authPrisma = new PrismaClient({ adapter });
+    let defaultUserId: string;
+    try {
+      const defaultUser = await authPrisma.user.create({
+        data: {
+          googleSubject: 'polaris-default-e2e-user',
+          email: 'default-e2e@example.com',
+          displayName: '既定E2Eユーザー',
+        },
+      });
+      defaultUserId = defaultUser.id;
+      await authPrisma.authSession.create({
+        data: {
+          userId: defaultUser.id,
+          tokenHash: sha256Base64Url(E2E_AUTH_TOKEN),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        },
+      });
+    } finally {
+      await authPrisma.$disconnect();
+    }
+    if (setup) await setup(env.DATABASE_URL as string, defaultUserId);
 
     const output: string[] = [];
     child = spawn(
@@ -148,11 +185,18 @@ export async function withE2eServer(
     await waitForServer(baseUrl, child, recentLogs);
 
     const request: E2eContext["request"] = async (path, options = {}) => {
+      const method = options.method ?? "GET";
+      const authCookie = `${SESSION_COOKIE_NAME}=${E2E_AUTH_TOKEN}`;
       const response = await fetch(`${baseUrl}${path}`, {
-        method: options.method ?? "GET",
-        headers: options.body === undefined ? undefined : { "content-type": "application/json" },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal: AbortSignal.timeout(180_000),
+        method,
+        headers: {
+          ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+          ...(options.authenticated === false ? {} : { cookie: authCookie }),
+          ...options.headers,
+        },
+        body: options.formData ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
+        // API側の最長AI処理（既定180秒）がProblem Detailsを返すまで待つ。
+        signal: AbortSignal.timeout(200_000),
       });
       const text = await response.text();
       let body: unknown = null;
@@ -163,15 +207,17 @@ export async function withE2eServer(
           body = text;
         }
       }
-      return {
+      const result = {
         status: response.status,
         body,
         contentType: response.headers.get("content-type"),
       };
+      await validateOpenApiResponse(method, path, result);
+      return result;
     };
 
     try {
-      await test({ baseUrl, request });
+      await test({ baseUrl, userId: defaultUserId, authCookie: `${SESSION_COOKIE_NAME}=${E2E_AUTH_TOKEN}`, request });
     } catch (error) {
       console.error("===== E2E server log (last 8000 chars) =====");
       console.error(recentLogs());

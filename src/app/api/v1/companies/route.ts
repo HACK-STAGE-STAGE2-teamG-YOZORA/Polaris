@@ -1,15 +1,18 @@
 import { prisma } from '@/lib/prisma';
 import { internalError, jsonBody, problem } from '@/server/api';
 import { companyInclude, formatCompany, formatCompanySummary, validHttpUrl } from '@/server/company';
+import { requireAuth } from '@/server/auth/require-auth';
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const rawEligible = new URL(request.url).searchParams.get('recommendationEligible');
     if (rawEligible !== null && rawEligible !== 'true' && rawEligible !== 'false') {
       return problem(422, 'VALIDATION_ERROR', 'recommendationEligible は boolean で指定してください。');
     }
     const companies = await prisma.company.findMany({
-      where: rawEligible === null ? undefined : { recommendationEligible: rawEligible === 'true' },
+      where: { userId: auth.userId, ...(rawEligible === null ? {} : { recommendationEligible: rawEligible === 'true' }) },
       include: companyInclude,
       orderBy: { updatedAt: 'desc' },
     });
@@ -21,6 +24,8 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const body = await jsonBody(request);
     if (!body || typeof body.name !== 'string' || !body.name.trim() || body.name.length > 200) {
       return problem(422, 'VALIDATION_ERROR', 'name は1〜200文字で指定してください。');
@@ -36,6 +41,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const company = await prisma.company.create({
       data: {
+        userId: auth.userId,
         name: body.name.trim(),
         targetRole: typeof body.targetRole === 'string' ? body.targetRole : null,
         officialUrl: typeof body.officialUrl === 'string' ? body.officialUrl : null,

@@ -3,15 +3,18 @@ import { prisma } from '@/lib/prisma';
 import { aiError, internalError, problem, SELF_ANALYSIS_AXES, stringArray } from '@/server/api';
 import { deriveAxisPosition } from '@/server/axis';
 import { formatAxisAssessment } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 import type { AxisPosition } from '@/types/dashboard';
 
 type Context = { params: Promise<{ sessionId: string }> };
 
-export async function POST(_request: Request, context: Context): Promise<Response> {
+export async function POST(request: Request, context: Context): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { sessionId } = await context.params;
-    const session = await prisma.analysisSession.findUnique({ where: { id: sessionId } });
+    const session = await prisma.analysisSession.findFirst({ where: { id: sessionId, userId: auth.userId } });
     if (!session) return problem(404, 'NOT_FOUND', '指定されたセッションがありません。');
     if (session.status === 'COMPLETED' || session.status === 'ABANDONED') {
       return problem(409, 'CONFLICT', '完了または破棄されたセッションは再分析できません。');
@@ -125,9 +128,9 @@ export async function POST(_request: Request, context: Context): Promise<Respons
       }
       await tx.analysisSession.update({ where: { id: sessionId }, data: { status: 'ACTIVE' } });
       await tx.selfAnalysisReport.updateMany({ where: { sourceSessionId: sessionId, isStale: false }, data: { isStale: true } });
-      await tx.overallSelfAnalysisProfile.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-      await tx.esAnalysis.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-      await tx.esRevision.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.overallSelfAnalysisProfile.updateMany({ where: { userId: auth.userId, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.esAnalysis.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.esRevision.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
       return saved;
     });
     const withEvidence = await prisma.axisAssessment.findMany({

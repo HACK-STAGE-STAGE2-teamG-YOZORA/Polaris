@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import {
+  OVERALL_SELF_ANALYSIS_AXES,
   stabilizeOverallSelfAnalysisCandidate,
 } from "../src/infrastructure/ai/overall-output.ts";
 import { stabilizeAxisAssessmentsCandidate } from "../src/infrastructure/ai/axis-output.ts";
@@ -137,7 +138,37 @@ assert.deepEqual(candidate.weaknesses, []);
 
 const serialized = JSON.stringify(candidate);
 assert.equal(serialized.includes(unknownId), false, "未知IDを残してはいけません");
-assert.equal(serialized.includes(evidenceSatisfaction), false, "接続のない根拠を残してはいけません");
+assert.equal(JSON.stringify(candidate.strengths).includes(evidenceSatisfaction), false, "強みへ接続のない根拠を残してはいけません");
+
+const malformedCandidate: Record<string, unknown> = {
+  summary: "",
+  axisTrends: [
+    {
+      axis: "ENERGY_SOURCE",
+      suggestedPosition: "UNKNOWN_POSITION",
+      statement: "",
+      sourceReportIds: [unknownId],
+      evidenceIds: [unknownId],
+      contextNotes: ["", "状況で変わる"],
+      extra: "削除対象",
+    },
+    { axis: "ENERGY_SOURCE", statement: "重複" },
+  ],
+  strengths: "not-an-array",
+  weaknesses: [{ title: "根拠なし", description: "削除される", axes: [], sourceReportIds: [], evidenceIds: [] }],
+  extra: "削除対象",
+};
+stabilizeOverallSelfAnalysisCandidate(malformedCandidate, grounding);
+assert.equal((malformedCandidate.axisTrends as unknown[]).length, 4, "不足4軸をレポートから復元する必要があります");
+assert.deepEqual(
+  (malformedCandidate.axisTrends as Array<{ axis: string }>).map((item) => item.axis),
+  [...OVERALL_SELF_ANALYSIS_AXES],
+);
+assert.equal(malformedCandidate.summary, `${grounding.completedSessionReports[0].summary} ${grounding.completedSessionReports[1].summary}`);
+assert.deepEqual(malformedCandidate.strengths, []);
+assert.deepEqual(malformedCandidate.weaknesses, []);
+assert.equal(Object.hasOwn(malformedCandidate, "extra"), false);
+assert.equal(JSON.stringify(malformedCandidate).includes("UNKNOWN_POSITION"), false);
 
 const axisCandidate = {
   assessments: [

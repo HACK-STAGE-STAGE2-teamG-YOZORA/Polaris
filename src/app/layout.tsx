@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import "./globals.css";
 
 import { BottomNav } from "@/app/components/BottomNav";
 import { ThemeRegistry } from "@/app/theme-registry";
