@@ -30,3 +30,6 @@ Thumbs.db
 .vscode/
 .claude/
 CLAUDE.md
+
+# Superdesign temporary context and generated scratch files
+.superdesign/tmp/
