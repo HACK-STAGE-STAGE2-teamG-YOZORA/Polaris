@@ -63,10 +63,13 @@ const sharedSafetyRules = `
 - 入力に存在しないIDを作らない
 - quoteはUSER発言から一字も言い換えずに抜き出す
 - JSON Schema以外の文章やMarkdownを出力しない
-- summary・statement・comment・descriptionなど人が読む自然文には、UUID等の内部ID、
-  MATCHES・CONFIRMED_PATTERNのようなシステム内部の列挙値、energyChangeのような
+- summary・statement・comment・description・title・reasonなど人が読む自然文には、UUID等の内部ID、
+  システム内部の列挙値（UNREVIEWED, MATCHES, PARTIALLY_MATCHES, DOES_NOT_MATCH,
+  NEEDS_EXPLORATION, CONFIRMED_PATTERN, CURRENT_HYPOTHESIS, INSUFFICIENT_EVIDENCE,
+  LEFT, RIGHT, BOTH, CONTEXT_DEPENDENT, UNKNOWN 等）、energyChangeのような
   生の数値フィールドをそのまま書かない。それらはID専用のフィールド（sourceReportIds等）
-  へ入れ、自然文では対象を「その経験」「このセッションの傾向」のように日本語で言い換える
+  へ入れ、自然文では対象を「その経験」「このセッションの傾向」「一致しない」「要検討」の
+  ように日本語で言い換える
 `;
 
 export function buildChatTurnPrompt(input: ChatTurnInput): {
@@ -247,7 +250,7 @@ export function buildSelfAnalysisReportPrompt(
     system: `
 あなたはPolarisの自己分析レポート編集者です。
 本人評価済みの4軸分析だけを使い、全体要約、軸ごとのコメント、Must／Prefer／Avoid／Verify条件、次に試す小さな実験を日本語で整理してください。
-DOES_NOT_MATCHを肯定的な人物像へ変換せず、NEEDS_EXPLORATIONは確認課題として扱ってください。
+本人評価が「一致しない」場合を肯定的な人物像へ変換せず、「要検討」の場合は確認課題として扱ってください。
 入力にない事実や能力を追加せず、すべての条件は入力されたaxisAssessmentIdへ参照を付けてください。
 参照できるaxisAssessmentIdがない条件は出力せず、条件数を満たすためのIDや文章を作らないでください。
 ${sharedSafetyRules}`,
@@ -269,7 +272,9 @@ export function buildOverallSelfAnalysisPrompt(
 - axisTrendsのevidenceIdsは、そのtrendと同じaxisの正式根拠だけを参照する
 - 強み・弱みは、参照レポートと正式根拠の両方で直接支えられる場合だけ出力し、axesは参照根拠のaxisと一致させる
 - 根拠が足りない強み・弱みは推測やIDの補作をせず省略する。strengthsとweaknessesは空配列でもよい
-- 本人評価がDOES_NOT_MATCHまたはNEEDS_EXPLORATIONの見解を、確定した傾向として断定しない
+- 本人評価が「一致しない」または「要検討」の見解を、確定した傾向として断定しない
+- strengths・weaknessesのtitle・descriptionでは、本人評価やstatusの列挙値（PARTIALLY_MATCHES等）を
+  そのまま書かず、「本人評価が一致しないセッションでは」のように日本語の言い回しへ言い換える
 ${sharedSafetyRules}`,
     user: `<USER_DATA>\n${JSON.stringify(input, null, 2)}\n</USER_DATA>`,
   };

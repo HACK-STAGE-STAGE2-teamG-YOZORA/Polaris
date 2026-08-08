@@ -20,8 +20,8 @@ export function AxisPositionBar({ label, percent, positionText }: AxisPositionBa
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: "82px minmax(80px, 1fr) 82px", alignItems: "center", gap: 1 }}>
       <Box>
-        <Typography sx={{ fontSize: 16, letterSpacing: "0.12em", lineHeight: 1.25 }}>{label.left}</Typography>
-        <Typography sx={{ mt: 0.5, fontSize: 18, lineHeight: 1.25 }}>{label.leftJa}</Typography>
+        <Typography sx={{ fontSize: 16, letterSpacing: "0.12em", lineHeight: 1.25, color: CHAT_COLORS.orange }}>{label.left}</Typography>
+        <Typography sx={{ mt: 0.5, fontSize: 18, lineHeight: 1.25, color: CHAT_COLORS.orange }}>{label.leftJa}</Typography>
       </Box>
       <Box sx={{ position: "relative", height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <Box sx={{ width: "100%", height: 4, borderRadius: 999, bgcolor: "rgba(255,255,255,0.92)" }} />
@@ -53,8 +53,8 @@ export function AxisPositionBar({ label, percent, positionText }: AxisPositionBa
         )}
       </Box>
       <Box sx={{ textAlign: "right" }}>
-        <Typography sx={{ fontSize: 16, letterSpacing: "0.12em", lineHeight: 1.25 }}>{label.right}</Typography>
-        <Typography sx={{ mt: 0.5, fontSize: 18, lineHeight: 1.25 }}>{label.rightJa}</Typography>
+        <Typography sx={{ fontSize: 16, letterSpacing: "0.12em", lineHeight: 1.25, color: CHAT_COLORS.orange }}>{label.right}</Typography>
+        <Typography sx={{ mt: 0.5, fontSize: 18, lineHeight: 1.25, color: CHAT_COLORS.orange }}>{label.rightJa}</Typography>
       </Box>
     </Box>
   );

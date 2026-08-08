@@ -160,17 +160,6 @@ export default function ExperiencesPage() {
             </Stack>
           )}
 
-          {/* 編集中は一覧を隠さず、フォームを一覧の上へ差し込む */}
-          {editing && (
-            <ExperienceCardForm
-              key={editing.id}
-              experience={editing}
-              saving={saving}
-              onSave={(body) => void save(editing.id, body)}
-              onCancel={cancelEdit}
-            />
-          )}
-
           {loading && (
             <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
               <CircularProgress size={24} sx={{ color: CHAT_COLORS.orange }} />
@@ -203,15 +192,25 @@ export default function ExperiencesPage() {
 
           {!loading && sortMode !== "BY_SESSION" &&
             sortedItems.map((experience) => (
-              <ExperienceListItem
-                key={experience.id}
-                experience={experience}
-                onEdit={() => startEdit(experience.id)}
-                onDelete={() => setPendingDeleteId(experience.id)}
-                onViewSession={setViewingSessionId}
-                deleting={deletingId === experience.id}
-                disabled={saving || deletingId !== null}
-              />
+              <Stack key={experience.id} spacing={2}>
+                {/* 編集中のカードの直前にフォームを差し込む */}
+                {editing?.id === experience.id && (
+                  <ExperienceCardForm
+                    experience={editing}
+                    saving={saving}
+                    onSave={(body) => void save(editing.id, body)}
+                    onCancel={cancelEdit}
+                  />
+                )}
+                <ExperienceListItem
+                  experience={experience}
+                  onEdit={() => startEdit(experience.id)}
+                  onDelete={() => setPendingDeleteId(experience.id)}
+                  onViewSession={setViewingSessionId}
+                  deleting={deletingId === experience.id}
+                  disabled={saving || deletingId !== null}
+                />
+              </Stack>
             ))}
 
           {!loading && sortMode === "BY_SESSION" && (
@@ -230,15 +229,25 @@ export default function ExperiencesPage() {
                   </Stack>
                   <Stack spacing={1.5}>
                     {group.items.map((experience) => (
-                      <ExperienceListItem
-                        key={experience.id}
-                        experience={experience}
-                        onEdit={() => startEdit(experience.id)}
-                        onDelete={() => setPendingDeleteId(experience.id)}
-                        onViewSession={setViewingSessionId}
-                        deleting={deletingId === experience.id}
-                        disabled={saving || deletingId !== null}
-                      />
+                      <Stack key={experience.id} spacing={1.5}>
+                        {/* 編集中のカードの直前にフォームを差し込む */}
+                        {editing?.id === experience.id && (
+                          <ExperienceCardForm
+                            experience={editing}
+                            saving={saving}
+                            onSave={(body) => void save(editing.id, body)}
+                            onCancel={cancelEdit}
+                          />
+                        )}
+                        <ExperienceListItem
+                          experience={experience}
+                          onEdit={() => startEdit(experience.id)}
+                          onDelete={() => setPendingDeleteId(experience.id)}
+                          onViewSession={setViewingSessionId}
+                          deleting={deletingId === experience.id}
+                          disabled={saving || deletingId !== null}
+                        />
+                      </Stack>
                     ))}
                   </Stack>
                 </Stack>

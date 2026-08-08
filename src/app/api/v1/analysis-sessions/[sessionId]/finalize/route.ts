@@ -29,7 +29,11 @@ export async function POST(request: Request, context: Context): Promise<Response
       }),
       prisma.selfAnalysisReport.findUnique({ where: { sourceSessionId: sessionId } }),
     ]);
-    if (existingReport) return problem(409, 'CONFLICT', 'このセッションのレポートは既に作成されています。');
+    // 古くなった(isStale)レポートは再開後の再確定で上書きしてよいが、
+    // 最新のレポートが既にある場合は誤って二重確定しないよう拒否する
+    if (existingReport && !existingReport.isStale) {
+      return problem(409, 'CONFLICT', 'このセッションのレポートは既に作成されています。');
+    }
     if (userMessageCount < 1) return problem(409, 'CONFLICT', '確定にはUSERメッセージが1件以上必要です。');
     const byAxis = new Map(assessments.map((item) => [item.axis, item]));
     const missing = SELF_ANALYSIS_AXES.filter((axis) => !byAxis.has(axis));
@@ -93,9 +97,25 @@ export async function POST(request: Request, context: Context): Promise<Response
     });
     const generatedAt = new Date();
     const report = await prisma.$transaction(async (tx) => {
-      const saved = await tx.selfAnalysisReport.create({
-        data: {
+      // 再開後の再確定では既存レポート(isStale=true)を新しい内容へ上書きする。
+      // SelfAnalysisReportはsourceSessionIdごとに1件しか持てないため新規作成ではなくupsertする
+      const saved = await tx.selfAnalysisReport.upsert({
+        where: { sourceSessionId: sessionId },
+        create: {
           sourceSessionId: sessionId,
+          summary: language.summary,
+          axisSnapshots,
+          mustConditions: language.mustConditions,
+          preferConditions: language.preferConditions,
+          avoidConditions: language.avoidConditions,
+          verifyConditions: language.verifyConditions,
+          nextExperiments: language.nextExperiments,
+          userMessageCount,
+          confirmedExperienceCount: experiences.length,
+          isStale: false,
+          generatedAt,
+        },
+        update: {
           summary: language.summary,
           axisSnapshots,
           mustConditions: language.mustConditions,

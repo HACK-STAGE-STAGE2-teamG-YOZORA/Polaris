@@ -12,7 +12,8 @@ import type { AnalysisSession } from "@/types/analysis-session";
 interface StartModeChoiceProps {
   // ユーザーは複数のセッションを同時に進行できるため一覧で受け取る
   resumableSessions: AnalysisSession[];
-  // 続きから送信はできない(COMPLETED)が、結果を見るためだけに一覧から辿れるセッション
+  // 確定済み(COMPLETED)のセッション。結果を見るだけでなく、続きから会話を再開して
+  // 再確定することもできる(再開するとレポートと4軸分析は古い状態になり、再確定が必要)
   otherSessions: AnalysisSession[];
   onResume: (sessionId: string) => void;
   onViewResult: (sessionId: string) => void;
@@ -132,21 +133,39 @@ export function StartModeChoice({
               完了済みの自己分析（{otherSessions.length}件）
             </Typography>
             <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
-              確定済みのため会話は続けられませんが、結果はいつでも見返せます。
+              結果はいつでも見返せます。続きから会話を再開すると、レポートは再確定するまで古い状態になります。
             </Typography>
             {otherSessions.map((session) => (
               <SessionRow
                 key={session.id}
                 session={session}
                 action={
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => onViewResult(session.id)}
-                    sx={{ color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder, borderRadius: "999px" }}
-                  >
-                    結果を見る
-                  </Button>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => onViewResult(session.id)}
+                      sx={{ color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder, borderRadius: "999px" }}
+                    >
+                      結果を見る
+                    </Button>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={() => onResume(session.id)}
+                      disabled={busy}
+                      startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
+                      sx={{
+                        bgcolor: CHAT_COLORS.orange,
+                        color: CHAT_COLORS.bubbleText,
+                        fontWeight: 700,
+                        borderRadius: "999px",
+                        "&:hover": { bgcolor: CHAT_COLORS.orangeDark },
+                      }}
+                    >
+                      続きから
+                    </Button>
+                  </Stack>
                 }
               />
             ))}
