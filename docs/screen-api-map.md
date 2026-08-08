@@ -2,27 +2,33 @@
 
 ## 1. 画面一覧
 
-| 画面 | 主目的 | 使用API | 優先度 |
-|---|---|---|---|
-| 起動確認 | DB・LM Studio状態と復旧案内 | `GET /system/health`, `GET /system/lm-studio` | P0 |
-| ホーム | 進行中セッション、全履歴からの総合4軸傾向、強み、弱み、データ量、保存済みESを表示 | `GET /dashboard`, `POST /overall-self-analysis/recompute` | P0 |
-| チャット開始選択 | 初回開始、続きから、初めから | `GET /analysis-sessions/current`, `POST /analysis-sessions` | P0 |
-| 自己分析チャット | 経験を一つずつ深掘りし、終了候補を案内 | `GET/POST /analysis-sessions/{id}/messages` | P0 |
-| 終了確認 | 自動終了せず、本人確認後にそのセッション固有の4軸分析とレポートを1件作成 | `POST /analysis-sessions/{id}/axis-assessments/generate`, `POST /analysis-sessions/{id}/finalize` | P0 |
-| 経験カード確認 | AI抽出結果を本人が修正・確認 | `POST /analysis-sessions/{id}/experience-drafts`, `PATCH /experiences/{id}` | P0 |
-| 経験一覧 | 確認済み／下書きの管理 | `GET /experiences`, `GET/PATCH/DELETE /experiences/{id}` | P0 |
-| セッション4軸結果 | そのチャットの軸位置、コメント、左右・状況別根拠、本人評価 | `GET /axis-assessments`, `PATCH /axis-assessments/{id}`, `GET /self-analysis-reports/{id}` | P0 |
-| 企業情報 | 任意の企業、出典、抽出事実を確認 | `GET/POST /companies`, `POST /companies/{id}/sources/text` | P0任意 |
-| ES入力 | 文章貼り付け、PNG/JPEG画像、PDFから原文を入力し、抽出文を確認後に設問・文字数・任意の企業・経験と保存 | `POST /es-text-extractions`, `GET/POST /es-documents`, `GET/PATCH /es-documents/{id}` | P0 |
-| ES検査結果 | 主張の根拠状態、問題箇所、コメントを表示 | `POST /es-documents/{id}/analyses` | P0 |
-| ES完成版 | そのまま提出可能な品質を目標にしたES案と、その下の根拠状態・問題箇所・改善理由コメントを表示 | `POST /es-documents/{id}/revisions`, `POST /es-revisions/{id}/verify` | P0 |
-| Googleログイン | Google認証、新規登録、ログイン状態確認、ログアウト | `GET /auth/google/start`, `GET /auth/google/callback`, `GET /auth/session`, `POST /auth/logout` | P1 |
-| 企業提案 | 登録企業の公式情報に基づく本命／挑戦／意外枠 | `POST /company-recommendation-runs`, `GET /company-recommendation-runs/{id}` | P1 |
-| 面接準備 | 確認済み経験の深掘り質問と、公式企業情報に基づく逆質問 | `POST /interview-questions/generate` | P1 |
+| 画面 | 画面パス | 主目的 | 使用API | 優先度 |
+|---|---|---|---|---|
+| 起動確認 | `/system-status` | DB・LM Studio状態と復旧案内 | `GET /system/health`, `GET /system/lm-studio` | P0 |
+| ホーム | `/` | 進行中セッション、全履歴からの総合4軸傾向、強み、弱み、データ量、保存済みESを表示 | `GET /dashboard`, `POST /overall-self-analysis/recompute` | P0 |
+| チャット開始選択 | `/analysis-chat` | 初回開始、続きから、初めから | `GET /analysis-sessions/current`, `POST /analysis-sessions` | P0 |
+| 自己分析チャット | `/analysis-chat` | 経験を一つずつ深掘りし、終了候補を案内 | `GET/POST /analysis-sessions/{id}/messages` | P0 |
+| 終了確認 | `/analysis-chat` | 自動終了せず、本人確認後にそのセッション固有の4軸分析とレポートを1件作成 | `POST /analysis-sessions/{id}/axis-assessments/generate`, `POST /analysis-sessions/{id}/finalize` | P0 |
+| 経験カード確認 | `/analysis-chat`, `/experiences` | AI抽出結果を本人が修正・確認 | `POST /analysis-sessions/{id}/experience-drafts`, `PATCH /experiences/{id}` | P0 |
+| 経験一覧 | `/experiences` | 確認済み／下書きの管理 | `GET /experiences`, `GET/PATCH/DELETE /experiences/{id}` | P0 |
+| セッション4軸結果 | `/analysis-chat` | そのチャットの軸位置、コメント、左右・状況別根拠、本人評価 | `GET /axis-assessments`, `PATCH /axis-assessments/{id}`, `GET /self-analysis-reports/{id}` | P0 |
+| 企業情報 | 未作成 | 任意の企業、出典、抽出事実を確認 | `GET/POST /companies`, `POST /companies/{id}/sources/text` | P0任意 |
+| ES入力 | `/es-revision` | 文章貼り付け、PNG/JPEG画像、PDFから原文を入力し、抽出文を確認後に設問・文字数・任意の企業・経験と保存 | `POST /es-text-extractions`, `GET/POST /es-documents`, `GET/PATCH /es-documents/{id}` | P0 |
+| ES検査結果 | `/es-revision` | 主張の根拠状態、問題箇所、コメントを表示 | `POST /es-documents/{id}/analyses` | P0 |
+| ES完成版 | `/es-revision` | そのまま提出可能な品質を目標にしたES案と、その下の根拠状態・問題箇所・改善理由コメントを表示 | `POST /es-documents/{id}/revisions`, `POST /es-revisions/{id}/verify` | P0 |
+| Googleログイン | `/login` | Google認証、新規登録、ログイン状態確認、ログアウト | `GET /auth/google/start`, `GET /auth/google/callback`, `GET /auth/session`, `POST /auth/logout` | P1 |
+| 企業提案 | 未作成 | 登録企業の公式情報に基づく本命／挑戦／意外枠 | `POST /company-recommendation-runs`, `GET /company-recommendation-runs/{id}` | P1 |
+| 面接準備 | 未作成 | 確認済み経験の深掘り質問と、公式企業情報に基づく逆質問 | `POST /interview-questions/generate` | P1 |
 
-パス表記では共通の`/api/v1`を省略している。
+API列では共通の`/api/v1`を省略している。画面パス列の「未作成」は、対応するAPIはあるが画面をまだ作っていないことを示す。
+
+同じ画面パスを複数行が共有している画面は、1つのページの中で状態に応じて切り替える。`/analysis-chat`は「開始選択 → チャット → 経験カード確認 → 終了確認 → 4軸結果と本人評価」を1ページで進め、`/es-revision`は「ES入力 → 検査結果 → 完成版」を1ページで進める。経験カード確認だけは、チャットの流れの中と`/experiences`の両方から同じフォームで行う。
+
+下部ナビゲーションはログイン済みのときだけ表示し、ホーム(`/`)、自己分析チャット(`/analysis-chat`)、経験一覧(`/experiences`)、ES添削(`/es-revision`)の4つを並べる。起動確認へは、ホーム下部のリンクと、`AI_UNAVAILABLE`を表示したエラー欄からの導線で入る。
 
 起動確認とGoogle認証開始・コールバックを除く画面APIはログイン必須である。`GET /auth/session`が未認証を返した場合、個人データ画面を描画せずGoogleログイン画面（`/login`）へ案内する。API呼び出しが401を返した場合も同じく`/login`へ戻す。認証に失敗したコールバックは`/login?authError={code}`へリダイレクトする。
+
+画面側で認証を要求しないパスは`/login`と`/system-status`だけとする。起動確認はDBやLM Studioが停止している状況を調べるための画面なので、`GET /auth/session`の結果を待たずに描画し、未ログインのままでも開けるようにする。
 
 ## 2. ホーム表示状態
 
@@ -84,12 +90,30 @@ ESは総合点を表示せず、設問回答状況、文字数、主張ごとの
 
 ## 4. チャット終了UI
 
+### 4.1 終了案内
+
 - 初回説明に「終了したい時は、終了したいと入力するか終了ボタンを押してください」と表示する。
 - AIが終了意図を検出した場合は`completionIntent=SUGGESTED`を受け取る。
 - 検出だけではセッション状態を変更しない。
 - 「ここまでの内容で分析結果を作りますか？」を表示する。
 - 根拠不足でも結果生成を禁止せず、不足している軸・経験数と「続ける／この内容で結果を見る」を表示する。
 - 確定操作後だけfinalize APIを呼ぶ。
+
+### 4.2 経験カード確認
+
+- 経験カード案の作成は本人の操作から始める。会話の内容だけを理由に画面が自動で作成・確認済み化しない。
+- `POST /analysis-sessions/{id}/experience-drafts`が返すカードは必ず`DRAFT`として編集フォームに表示し、内容を本人が確認・修正できるようにする。
+- 「確認済みにする」を押したときだけ`PATCH /experiences/{id}`へ`status=CONFIRMED`を送る。フォームを閉じてもカードは`DRAFT`として残り、`/experiences`から再開できる。
+- 確認済みカードの内容を編集して保存した場合、`status=CONFIRMED`を明示しない限り`DRAFT`へ戻ることを画面上でも明示する。
+- カードの根拠になった本人の発言（`evidenceQuotes`）をフォーム内に表示し、元の会話へ遡れるようにする。
+
+### 4.3 4軸の本人評価と確定
+
+- 4軸分析の生成直後、各軸の`userAssessment`は`UNREVIEWED`である。画面は軸ごとに「当てはまる／一部当てはまる／当てはまらない／追加で考えたい」を表示し、本人が押した値だけを`PATCH /axis-assessments/{id}`で保存する。
+- 未評価の軸を画面側が既定値で埋めてはならない。未評価が残っているあいだは確定ボタンを押せない状態にし、残り軸数を表示する。
+- `isStale=true`の軸がある場合は確定させず、4軸分析の再生成へ誘導する。
+- 各軸には位置・コメントに加えて、根拠状態、根拠件数、根拠不足、状況メモを表示し、根拠として引用された本人の発言を展開して確認できるようにする。
+- finalize成功後に総合プロフィールの再集計が失敗した場合、確定済みレポートは取り消さず、ホームの`STALE`表示から再集計できることを伝える。
 
 ## 5. 主要ローディング・失敗UI
 
