@@ -6,6 +6,9 @@ import type {
   EsDocument,
   EsRevision,
   EsTextExtraction,
+  RevisionChange,
+  RevisionDecision,
+  UpdateEsDocumentRequest,
 } from "@/types/es-document";
 
 const BASE_URL = "/api/v1";
@@ -14,6 +17,21 @@ const BASE_URL = "/api/v1";
 export async function createEsDocument(request: CreateEsDocumentRequest): Promise<EsDocument> {
   const res = await fetch(`${BASE_URL}/es-documents`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  await throwIfError(res);
+  return (await res.json()) as EsDocument;
+}
+
+// PATCH /api/v1/es-documents/{esDocumentId}
+// 作成後の分析・推敲に失敗し、ユーザーが入力を変更して再試行する場合に同じ下書きを更新する。
+export async function updateEsDocument(
+  esDocumentId: string,
+  request: UpdateEsDocumentRequest,
+): Promise<EsDocument> {
+  const res = await fetch(`${BASE_URL}/es-documents/${esDocumentId}`, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
@@ -65,4 +83,19 @@ export async function verifyEsRevision(revisionId: string): Promise<EsAnalysis> 
   });
   await throwIfError(res);
   return (await res.json()) as EsAnalysis;
+}
+
+// PATCH /api/v1/es-revisions/{revisionId}/changes/{changeId}
+export async function reviewEsRevisionChange(
+  revisionId: string,
+  changeId: string,
+  decision: RevisionDecision,
+): Promise<RevisionChange> {
+  const res = await fetch(`${BASE_URL}/es-revisions/${revisionId}/changes/${changeId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+  await throwIfError(res);
+  return (await res.json()) as RevisionChange;
 }

@@ -1,94 +1,95 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   analyzeEsDocument,
   createEsDocument,
   reviseEsDocument,
+  reviewEsRevisionChange,
+  updateEsDocument,
   verifyEsRevision,
 } from "@/lib/api/es-documents";
+import { getAuthSession } from "@/lib/api/auth";
+import { listCompanies } from "@/lib/api/companies";
 import { ApiError } from "@/lib/api/errors";
+import { listConfirmedExperiences } from "@/lib/api/experiences";
+import type { CompanySummary } from "@/types/company";
 import type {
   CreateEsDocumentRequest,
-  EsAiCommentCategory,
   EsAnalysis,
   EsDocument,
-  EsIssueSeverity,
   EsRevision,
-  SubmissionReadiness,
+  RevisionDecision,
 } from "@/types/es-document";
+import type { ExperienceResponse } from "@/types/experience";
+import {
+  determineRevisionWorkflowStage,
+  fingerprintEsRequest,
+} from "./es-revision-logic";
 
-export type { SubmissionReadiness } from "@/types/es-document";
-
-// 画面表示用に整形したエラー情報。retryableはバナーの文言分岐、
-// fieldErrorsは422のdetails[].fieldをフォームの該当項目へ紐付けるために使う
 export interface EsFormError {
   message: string;
   retryable: boolean;
   fieldErrors: Record<string, string>;
 }
 
-// 3画面の現在位置。ES入力 → 添削結果 → AIコメント の一方向の遷移だけを持つ
-export type EsRevisionStep = "INPUT" | "RESULT" | "COMMENTS";
+export type EsRevisionStep = "INPUT" | "ANALYSIS" | "RESULT" | "COMMENTS";
+export type EsAccessStatus = "CHECKING" | "UNAUTHENTICATED" | "LOADING_CONTEXT" | "READY" | "ERROR";
 
-// ES作成→原文分析→推敲→再検査の4段階。ローディング表示の出し分けに使う
 export type EsRevisionProgressStage =
   | "CREATING_DOCUMENT"
+  | "UPDATING_DOCUMENT"
   | "ANALYZING_ORIGINAL"
   | "REVISING"
   | "VERIFYING";
 
 const PROGRESS_LABEL: Record<EsRevisionProgressStage, string> = {
   CREATING_DOCUMENT: "ES原文を保存しています…",
+  UPDATING_DOCUMENT: "ES原文を更新しています…",
   ANALYZING_ORIGINAL: "原文を検査しています…",
   REVISING: "推敲しています…",
   VERIFYING: "推敲結果を再検査しています…",
 };
 
-export type EsCommentCategory = EsAiCommentCategory;
-export type EsCommentSeverity = EsIssueSeverity;
-
-export interface EsComment {
-  id: string;
-  category: EsCommentCategory;
-  severity: EsCommentSeverity;
-  message: string;
-}
-
 interface UseEsRevisionState {
+  accessStatus: EsAccessStatus;
+  companies: CompanySummary[];
+  experiences: ExperienceResponse[];
   step: EsRevisionStep;
   esDocument: EsDocument | null;
+  originalAnalysis: EsAnalysis | null;
   esRevision: EsRevision | null;
   verifyAnalysis: EsAnalysis | null;
-  // 4段階(作成→原文分析→推敲→再検査)のうち現在実行中のもの。何も実行中でなければnull
+  requestFingerprint: string | null;
   progressStage: EsRevisionProgressStage | null;
+  reviewingChangeId: string | null;
   error: EsFormError | null;
 }
 
 const initialState: UseEsRevisionState = {
+  accessStatus: "CHECKING",
+  companies: [],
+  experiences: [],
   step: "INPUT",
   esDocument: null,
+  originalAnalysis: null,
   esRevision: null,
   verifyAnalysis: null,
+  requestFingerprint: null,
   progressStage: null,
+  reviewingChangeId: null,
   error: null,
 };
 
-// ErrorDetail[] を { フィールド名: 理由 } のマップへ変換する。
-// field/reasonが両方揃っているものだけを採用する
 function toFieldErrors(details: { field?: string; reason?: string }[]): Record<string, string> {
   const fieldErrors: Record<string, string> = {};
   for (const detail of details) {
-    if (detail.field && detail.reason) {
-      fieldErrors[detail.field] = detail.reason;
-    }
+    if (detail.field && detail.reason) fieldErrors[detail.field] = detail.reason;
   }
   return fieldErrors;
 }
 
-// APIエラーをコード別に日本語メッセージへ変換する
 function toFormError(err: unknown): EsFormError {
   if (!(err instanceof ApiError)) {
-    // fetch自体が失敗した場合などApiErrorに正規化できなかったケース
     return {
       message: "通信に失敗しました。ネットワーク状況を確認してください。",
       retryable: true,
@@ -97,41 +98,28 @@ function toFormError(err: unknown): EsFormError {
   }
 
   const fieldErrors = toFieldErrors(err.response.details);
-
   switch (err.response.code) {
     case "VALIDATION_ERROR":
-      // 422: fieldErrorsを各フォーム項目に表示するのでバナー文言はサーバーのmessage優先
-      return {
-        message: err.response.message || "入力内容を確認してください。",
-        retryable: false,
-        fieldErrors,
-      };
+      return { message: err.response.message || "入力内容を確認してください。", retryable: false, fieldErrors };
     case "CONFLICT":
-      // 409: 検査・添削の順序不整合など
-      return {
-        message: "先に検査・添削を完了させてください。",
-        retryable: false,
-        fieldErrors,
-      };
+      return { message: "先に検査・推敲を完了させてください。", retryable: false, fieldErrors };
+    case "AUTH_REQUIRED":
+      return { message: "ログインが必要です。", retryable: false, fieldErrors };
     case "AI_INVALID_OUTPUT":
-      // 502: AI出力が契約スキーマ/ドメイン規則に適合せず採用できなかった
       return {
         message: "AIの出力形式に問題がありました。もう一度お試しください。",
         retryable: true,
         fieldErrors,
       };
     case "AI_UNAVAILABLE":
-      // 503: LM Studio未起動・モデル未ロード
       return {
         message: "LM Studioが起動していません。Local Serverとモデルの読み込み状態を確認してください。",
         retryable: true,
         fieldErrors,
       };
     case "AI_TIMEOUT":
-      // 504: 入力内容は破棄しない。自動リトライはしない
       return {
-        message:
-          "AIの応答が時間内に返りませんでした。入力内容はそのまま残っています。もう一度お試しください。",
+        message: "AIの応答が時間内に返りませんでした。入力内容を保持したまま再試行できます。",
         retryable: true,
         fieldErrors,
       };
@@ -144,49 +132,136 @@ function toFormError(err: unknown): EsFormError {
   }
 }
 
-// APIレスポンスのcomments(根拠状態・指摘・改善理由)を画面表示用に整形する。
-// EsAiCommentにはidがないため表示用に連番で採番する
-function toEsComments(analysis: EsAnalysis | null): EsComment[] {
-  if (!analysis) return [];
-  return analysis.comments.map((comment, index) => ({
-    id: `comment-${index}`,
-    category: comment.category,
-    severity: comment.severity,
-    message: comment.message,
-  }));
+function isAuthRequiredError(err: unknown): boolean {
+  return err instanceof ApiError && err.response.code === "AUTH_REQUIRED";
 }
 
 export function useEsRevision() {
   const [state, setState] = useState<UseEsRevisionState>(initialState);
 
-  // 「添削する」: ES文書作成 → 原文分析 → 推敲案の作成、の3段階をまとめて実行する
-  const startRevision = useCallback(
+  const loadScreenContext = useCallback(async (): Promise<void> => {
+    setState((prev) => ({ ...prev, accessStatus: "CHECKING", error: null }));
+    try {
+      const session = await getAuthSession();
+      if (!session.authenticated || !session.user) {
+        setState((prev) => ({ ...prev, accessStatus: "UNAUTHENTICATED", companies: [], experiences: [] }));
+        return;
+      }
+
+      setState((prev) => ({ ...prev, accessStatus: "LOADING_CONTEXT" }));
+      const [companyPage, experiencePage] = await Promise.all([
+        listCompanies(),
+        listConfirmedExperiences(),
+      ]);
+      setState((prev) => ({
+        ...prev,
+        accessStatus: "READY",
+        companies: companyPage.items,
+        experiences: experiencePage.items,
+        error: null,
+      }));
+    } catch (err) {
+      if (err instanceof ApiError && err.response.code === "AUTH_REQUIRED") {
+        setState((prev) => ({ ...prev, accessStatus: "UNAUTHENTICATED", companies: [], experiences: [] }));
+        return;
+      }
+      setState((prev) => ({ ...prev, accessStatus: "ERROR", error: toFormError(err) }));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadScreenContext();
+  }, [loadScreenContext]);
+
+  const startAnalysis = useCallback(
     async (request: CreateEsDocumentRequest): Promise<boolean> => {
-      setState((prev) => ({ ...prev, progressStage: "CREATING_DOCUMENT", error: null }));
+      const nextFingerprint = fingerprintEsRequest(request);
+      let esDocument = state.esDocument;
+      let originalAnalysis = state.originalAnalysis;
+      let esRevision = state.esRevision;
+      let stage = determineRevisionWorkflowStage(
+        {
+          hasDocument: esDocument !== null,
+          hasOriginalAnalysis: originalAnalysis !== null,
+          hasRevision: esRevision !== null,
+          requestFingerprint: state.requestFingerprint,
+        },
+        nextFingerprint,
+      );
+
+      setState((prev) => ({ ...prev, error: null }));
       try {
-        const esDocument = await createEsDocument(request);
-        setState((prev) => ({ ...prev, esDocument, progressStage: "ANALYZING_ORIGINAL" }));
+        if (stage === "CREATE" || stage === "UPDATE") {
+          setState((prev) => ({
+            ...prev,
+            progressStage: stage === "CREATE" ? "CREATING_DOCUMENT" : "UPDATING_DOCUMENT",
+          }));
+          esDocument = stage === "CREATE"
+            ? await createEsDocument(request)
+            : await updateEsDocument(esDocument!.id, request);
+          originalAnalysis = null;
+          esRevision = null;
+          stage = "ANALYZE";
+          setState((prev) => ({
+            ...prev,
+            esDocument,
+            originalAnalysis: null,
+            esRevision: null,
+            verifyAnalysis: null,
+            requestFingerprint: nextFingerprint,
+          }));
+        }
 
-        await analyzeEsDocument(esDocument.id);
-        setState((prev) => ({ ...prev, progressStage: "REVISING" }));
+        if (stage === "ANALYZE") {
+          setState((prev) => ({ ...prev, progressStage: "ANALYZING_ORIGINAL" }));
+          originalAnalysis = await analyzeEsDocument(esDocument!.id);
+          stage = "REVISE";
+          setState((prev) => ({ ...prev, originalAnalysis }));
+        }
 
-        const esRevision = await reviseEsDocument(esDocument.id);
         setState((prev) => ({
           ...prev,
           progressStage: null,
-          esRevision,
-          step: "RESULT",
+          esRevision: esRevision ?? prev.esRevision,
+          step: "ANALYSIS",
         }));
         return true;
       } catch (err) {
-        setState((prev) => ({ ...prev, progressStage: null, error: toFormError(err) }));
+        setState((prev) => ({
+          ...prev,
+          accessStatus: isAuthRequiredError(err) ? "UNAUTHENTICATED" : prev.accessStatus,
+          progressStage: null,
+          error: toFormError(err),
+        }));
         return false;
       }
     },
-    [],
+    [state.esDocument, state.esRevision, state.originalAnalysis, state.requestFingerprint],
   );
 
-  // 「コメントをもらう」: 推敲後の文章を再検査する(4段階目)
+  const requestRevision = useCallback(async (): Promise<boolean> => {
+    if (!state.esDocument || !state.originalAnalysis) return false;
+    if (state.esRevision) {
+      setState((prev) => ({ ...prev, step: "RESULT", error: null }));
+      return true;
+    }
+
+    setState((prev) => ({ ...prev, progressStage: "REVISING", error: null }));
+    try {
+      const esRevision = await reviseEsDocument(state.esDocument.id);
+      setState((prev) => ({ ...prev, progressStage: null, esRevision, step: "RESULT" }));
+      return true;
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        accessStatus: isAuthRequiredError(err) ? "UNAUTHENTICATED" : prev.accessStatus,
+        progressStage: null,
+        error: toFormError(err),
+      }));
+      return false;
+    }
+  }, [state.esDocument, state.esRevision, state.originalAnalysis]);
+
   const requestComments = useCallback(async (): Promise<boolean> => {
     const revision = state.esRevision;
     if (!revision) return false;
@@ -197,31 +272,62 @@ export function useEsRevision() {
       setState((prev) => ({ ...prev, progressStage: null, verifyAnalysis, step: "COMMENTS" }));
       return true;
     } catch (err) {
-      setState((prev) => ({ ...prev, progressStage: null, error: toFormError(err) }));
+      setState((prev) => ({
+        ...prev,
+        accessStatus: isAuthRequiredError(err) ? "UNAUTHENTICATED" : prev.accessStatus,
+        progressStage: null,
+        error: toFormError(err),
+      }));
+      return false;
+    }
+  }, [state.esRevision]);
+
+  const reviewChange = useCallback(async (changeId: string, decision: RevisionDecision): Promise<boolean> => {
+    const revision = state.esRevision;
+    if (!revision) return false;
+    setState((prev) => ({ ...prev, reviewingChangeId: changeId, error: null }));
+    try {
+      const updated = await reviewEsRevisionChange(revision.id, changeId, decision);
+      setState((prev) => ({
+        ...prev,
+        reviewingChangeId: null,
+        esRevision: prev.esRevision
+          ? { ...prev.esRevision, changes: prev.esRevision.changes.map((change) => change.id === updated.id ? updated : change) }
+          : null,
+      }));
+      return true;
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        accessStatus: isAuthRequiredError(err) ? "UNAUTHENTICATED" : prev.accessStatus,
+        reviewingChangeId: null,
+        error: toFormError(err),
+      }));
       return false;
     }
   }, [state.esRevision]);
 
   const submitting = state.progressStage !== null && state.progressStage !== "VERIFYING";
   const verifying = state.progressStage === "VERIFYING";
-  const progressLabel = state.progressStage ? PROGRESS_LABEL[state.progressStage] : null;
-  const comments = toEsComments(state.verifyAnalysis);
-  // 提出可否はフロントで合成せず、APIレスポンスのsubmissionReadinessをそのまま使う
-  const submissionReadiness: SubmissionReadiness | null =
-    state.verifyAnalysis?.submissionReadiness ?? null;
 
   return {
+    accessStatus: state.accessStatus,
+    companies: state.companies,
+    experiences: state.experiences,
     step: state.step,
     esDocument: state.esDocument,
+    originalAnalysis: state.originalAnalysis,
     esRevision: state.esRevision,
     verifyAnalysis: state.verifyAnalysis,
     error: state.error,
     submitting,
     verifying,
-    progressLabel,
-    comments,
-    submissionReadiness,
-    startRevision,
+    reviewingChangeId: state.reviewingChangeId,
+    progressLabel: state.progressStage ? PROGRESS_LABEL[state.progressStage] : null,
+    startAnalysis,
+    requestRevision,
     requestComments,
+    reviewChange,
+    reloadContext: loadScreenContext,
   };
 }
