@@ -1,14 +1,23 @@
 import { useCallback, useState } from "react";
 
-import { createEsDocument, reviseEsDocument, verifyEsRevision } from "@/lib/api/es-documents";
+import {
+  analyzeEsDocument,
+  createEsDocument,
+  reviseEsDocument,
+  verifyEsRevision,
+} from "@/lib/api/es-documents";
 import { ApiError } from "@/lib/api/errors";
 import type {
-  ClaimStatus,
   CreateEsDocumentRequest,
+  EsAiCommentCategory,
   EsAnalysis,
   EsDocument,
+  EsIssueSeverity,
   EsRevision,
+  SubmissionReadiness,
 } from "@/types/es-document";
+
+export type { SubmissionReadiness } from "@/types/es-document";
 
 // 画面表示用に整形したエラー情報。retryableはバナーの文言分岐、
 // fieldErrorsは422のdetails[].fieldをフォームの該当項目へ紐付けるために使う
@@ -21,10 +30,22 @@ export interface EsFormError {
 // 3画面の現在位置。ES入力 → 添削結果 → AIコメント の一方向の遷移だけを持つ
 export type EsRevisionStep = "INPUT" | "RESULT" | "COMMENTS";
 
-// openapi.yamlのEsAnalysisにはcomments配列が存在しないため、
-// claims(根拠状態)・issues(指摘)・changes(推敲理由)から画面表示用に合成する
-export type EsCommentCategory = "EVIDENCE_STATUS" | "ISSUE" | "IMPROVEMENT_REASON";
-export type EsCommentSeverity = "ERROR" | "WARNING" | "INFO";
+// ES作成→原文分析→推敲→再検査の4段階。ローディング表示の出し分けに使う
+export type EsRevisionProgressStage =
+  | "CREATING_DOCUMENT"
+  | "ANALYZING_ORIGINAL"
+  | "REVISING"
+  | "VERIFYING";
+
+const PROGRESS_LABEL: Record<EsRevisionProgressStage, string> = {
+  CREATING_DOCUMENT: "ES原文を保存しています…",
+  ANALYZING_ORIGINAL: "原文を検査しています…",
+  REVISING: "推敲しています…",
+  VERIFYING: "推敲結果を再検査しています…",
+};
+
+export type EsCommentCategory = EsAiCommentCategory;
+export type EsCommentSeverity = EsIssueSeverity;
 
 export interface EsComment {
   id: string;
@@ -33,18 +54,13 @@ export interface EsComment {
   message: string;
 }
 
-// 数値スコアではなく、設問回答状況・文字数・主張ごとの根拠状態から判定する提出準備状況
-export type SubmissionReadiness = "READY_TO_SUBMIT" | "NEEDS_REVIEW";
-
 interface UseEsRevisionState {
   step: EsRevisionStep;
   esDocument: EsDocument | null;
   esRevision: EsRevision | null;
   verifyAnalysis: EsAnalysis | null;
-  // 「添削する」(ES文書作成 → 推敲を1操作にまとめて呼ぶ)の実行中フラグ
-  submitting: boolean;
-  // 「コメントをもらう」(再検査)の実行中フラグ
-  verifying: boolean;
+  // 4段階(作成→原文分析→推敲→再検査)のうち現在実行中のもの。何も実行中でなければnull
+  progressStage: EsRevisionProgressStage | null;
   error: EsFormError | null;
 }
 
@@ -53,8 +69,7 @@ const initialState: UseEsRevisionState = {
   esDocument: null,
   esRevision: null,
   verifyAnalysis: null,
-  submitting: false,
-  verifying: false,
+  progressStage: null,
   error: null,
 };
 
@@ -129,135 +144,81 @@ function toFormError(err: unknown): EsFormError {
   }
 }
 
-function claimSeverity(status: ClaimStatus): EsCommentSeverity {
-  switch (status) {
-    case "CONTRADICTED":
-      return "ERROR";
-    case "NEEDS_CONFIRMATION":
-    case "PARTIALLY_VERIFIED":
-      return "WARNING";
-    case "VERIFIED":
-      return "INFO";
-  }
-}
-
-function claimStatusLabel(status: ClaimStatus): string {
-  switch (status) {
-    case "VERIFIED":
-      return "根拠が確認できています";
-    case "PARTIALLY_VERIFIED":
-      return "根拠が一部のみ確認できています";
-    case "NEEDS_CONFIRMATION":
-      return "根拠の確認が必要です";
-    case "CONTRADICTED":
-      return "既存の情報と矛盾しています";
-  }
-}
-
-// claims(根拠状態)・issues(指摘)・changes(推敲理由)から吹き出し表示用コメントを組み立てる
-function buildComments(analysis: EsAnalysis | null, revision: EsRevision | null): EsComment[] {
-  const comments: EsComment[] = [];
-
-  if (analysis) {
-    analysis.issues.forEach((issue, index) => {
-      comments.push({
-        id: `issue-${index}`,
-        category: "ISSUE",
-        severity: issue.severity,
-        message: issue.message,
-      });
-    });
-
-    analysis.claims.forEach((claim) => {
-      const explanation = claim.explanation ? ` — ${claim.explanation}` : "";
-      comments.push({
-        id: `claim-${claim.id}`,
-        category: "EVIDENCE_STATUS",
-        severity: claimSeverity(claim.status),
-        message: `「${claim.text}」: ${claimStatusLabel(claim.status)}${explanation}`,
-      });
-    });
-  }
-
-  if (revision) {
-    revision.changes.forEach((change) => {
-      comments.push({
-        id: `change-${change.id}`,
-        category: "IMPROVEMENT_REASON",
-        severity: "INFO",
-        message: change.reason,
-      });
-    });
-  }
-
-  return comments;
-}
-
-// スコアは使わず、設問回答状況・文字数上限・主張ごとの根拠状態から提出準備状況を判定する
-function deriveSubmissionReadiness(analysis: EsAnalysis): SubmissionReadiness {
-  const hasBlockingIssue = analysis.issues.some((issue) => issue.severity === "ERROR");
-  const hasUnresolvedClaim = analysis.claims.some(
-    (claim) => claim.status === "CONTRADICTED" || claim.status === "NEEDS_CONFIRMATION",
-  );
-
-  const isReady =
-    analysis.questionCoverage === "ANSWERED" &&
-    analysis.withinCharacterLimit &&
-    !hasBlockingIssue &&
-    !hasUnresolvedClaim;
-
-  return isReady ? "READY_TO_SUBMIT" : "NEEDS_REVIEW";
+// APIレスポンスのcomments(根拠状態・指摘・改善理由)を画面表示用に整形する。
+// EsAiCommentにはidがないため表示用に連番で採番する
+function toEsComments(analysis: EsAnalysis | null): EsComment[] {
+  if (!analysis) return [];
+  return analysis.comments.map((comment, index) => ({
+    id: `comment-${index}`,
+    category: comment.category,
+    severity: comment.severity,
+    message: comment.message,
+  }));
 }
 
 export function useEsRevision() {
   const [state, setState] = useState<UseEsRevisionState>(initialState);
 
-  // 「添削する」: ES文書作成 → 続けて推敲案の作成までを1操作としてまとめる
+  // 「添削する」: ES文書作成 → 原文分析 → 推敲案の作成、の3段階をまとめて実行する
   const startRevision = useCallback(
     async (request: CreateEsDocumentRequest): Promise<boolean> => {
-      setState((prev) => ({ ...prev, submitting: true, error: null }));
+      setState((prev) => ({ ...prev, progressStage: "CREATING_DOCUMENT", error: null }));
       try {
         const esDocument = await createEsDocument(request);
+        setState((prev) => ({ ...prev, esDocument, progressStage: "ANALYZING_ORIGINAL" }));
+
+        await analyzeEsDocument(esDocument.id);
+        setState((prev) => ({ ...prev, progressStage: "REVISING" }));
+
         const esRevision = await reviseEsDocument(esDocument.id);
         setState((prev) => ({
           ...prev,
-          submitting: false,
-          esDocument,
+          progressStage: null,
           esRevision,
           step: "RESULT",
         }));
         return true;
       } catch (err) {
-        setState((prev) => ({ ...prev, submitting: false, error: toFormError(err) }));
+        setState((prev) => ({ ...prev, progressStage: null, error: toFormError(err) }));
         return false;
       }
     },
     [],
   );
 
-  // 「コメントをもらう」: 推敲後の文章を再検査する
+  // 「コメントをもらう」: 推敲後の文章を再検査する(4段階目)
   const requestComments = useCallback(async (): Promise<boolean> => {
     const revision = state.esRevision;
     if (!revision) return false;
 
-    setState((prev) => ({ ...prev, verifying: true, error: null }));
+    setState((prev) => ({ ...prev, progressStage: "VERIFYING", error: null }));
     try {
       const verifyAnalysis = await verifyEsRevision(revision.id);
-      setState((prev) => ({ ...prev, verifying: false, verifyAnalysis, step: "COMMENTS" }));
+      setState((prev) => ({ ...prev, progressStage: null, verifyAnalysis, step: "COMMENTS" }));
       return true;
     } catch (err) {
-      setState((prev) => ({ ...prev, verifying: false, error: toFormError(err) }));
+      setState((prev) => ({ ...prev, progressStage: null, error: toFormError(err) }));
       return false;
     }
   }, [state.esRevision]);
 
-  const comments = buildComments(state.verifyAnalysis, state.esRevision);
-  const submissionReadiness = state.verifyAnalysis
-    ? deriveSubmissionReadiness(state.verifyAnalysis)
-    : null;
+  const submitting = state.progressStage !== null && state.progressStage !== "VERIFYING";
+  const verifying = state.progressStage === "VERIFYING";
+  const progressLabel = state.progressStage ? PROGRESS_LABEL[state.progressStage] : null;
+  const comments = toEsComments(state.verifyAnalysis);
+  // 提出可否はフロントで合成せず、APIレスポンスのsubmissionReadinessをそのまま使う
+  const submissionReadiness: SubmissionReadiness | null =
+    state.verifyAnalysis?.submissionReadiness ?? null;
 
   return {
-    ...state,
+    step: state.step,
+    esDocument: state.esDocument,
+    esRevision: state.esRevision,
+    verifyAnalysis: state.verifyAnalysis,
+    error: state.error,
+    submitting,
+    verifying,
+    progressLabel,
     comments,
     submissionReadiness,
     startRevision,

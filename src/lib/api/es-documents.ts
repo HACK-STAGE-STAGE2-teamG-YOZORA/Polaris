@@ -5,6 +5,7 @@ import type {
   EsAnalysis,
   EsDocument,
   EsRevision,
+  EsTextExtraction,
 } from "@/types/es-document";
 
 const BASE_URL = "/api/v1";
@@ -18,6 +19,28 @@ export async function createEsDocument(request: CreateEsDocumentRequest): Promis
   });
   await throwIfError(res);
   return (await res.json()) as EsDocument;
+}
+
+// POST /api/v1/es-documents/{esDocumentId}/analyses
+export async function analyzeEsDocument(esDocumentId: string): Promise<EsAnalysis> {
+  const res = await fetch(`${BASE_URL}/es-documents/${esDocumentId}/analyses`, {
+    method: "POST",
+  });
+  await throwIfError(res);
+  return (await res.json()) as EsAnalysis;
+}
+
+// POST /api/v1/es-text-extractions
+// アップロード元ファイルは保存せず、確認前の抽出文をその場で返す(docs/openapi.yaml参照)
+export async function extractEsText(file: File): Promise<EsTextExtraction> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${BASE_URL}/es-text-extractions`, {
+    method: "POST",
+    body: formData,
+  });
+  await throwIfError(res);
+  return (await res.json()) as EsTextExtraction;
 }
 
 // POST /api/v1/es-documents/{esDocumentId}/revisions

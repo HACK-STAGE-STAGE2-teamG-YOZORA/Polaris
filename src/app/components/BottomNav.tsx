@@ -37,7 +37,7 @@ function ReviewIcon(props: SvgIconProps) {
 const NAV_ITEMS = [
   { label: "Home", href: "/", icon: HomeIcon },
   { label: "Chat", href: "/analysis-chat", icon: ChatIcon },
-  { label: "Review", href: "/review", icon: ReviewIcon },
+  { label: "Review", href: "/es-revision", icon: ReviewIcon },
 ] as const;
 
 // アプリ共通の下部ナビゲーション。layout.tsxからだけ呼び出し、

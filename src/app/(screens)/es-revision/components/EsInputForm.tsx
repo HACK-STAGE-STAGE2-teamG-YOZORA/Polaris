@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -12,6 +12,8 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
+import { extractEsText } from "@/lib/api/es-documents";
+import { ApiError } from "@/lib/api/errors";
 import { countCodePoints } from "@/shared/validation/count-code-points";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { CreateEsDocumentRequest } from "@/types/es-document";
@@ -20,6 +22,24 @@ import type { CreateEsDocumentRequest } from "@/types/es-document";
 const MAX_QUESTION_LENGTH = 5000;
 const MAX_ORIGINAL_TEXT_LENGTH = 20000;
 const MAX_CHARACTER_LIMIT = 10000;
+
+// docs/openapi.yaml POST /api/v1/es-text-extractions が受け付けるファイル形式
+const ACCEPTED_FILE_TYPES = "image/png,image/jpeg,application/pdf";
+
+// POST /api/v1/es-text-extractions のエラーレスポンスを画面表示用の文言へ変換する
+function toExtractionErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.response.code) {
+      case "PAYLOAD_TOO_LARGE":
+        return "ファイルサイズが大きすぎます(上限10MB)。";
+      case "UNSUPPORTED_MEDIA_TYPE":
+        return "PNG・JPEG・PDF(10ページ以下、暗号化なし)のみ添付できます。";
+      default:
+        return err.response.message || "ファイルからの文字抽出に失敗しました。";
+    }
+  }
+  return "ファイルからの文字抽出に失敗しました。通信状況を確認してください。";
+}
 
 function ClipIcon() {
   return (
@@ -65,17 +85,21 @@ function FieldLabel({ children, required }: { children: string; required?: boole
 
 interface EsInputFormProps {
   submitting: boolean;
+  // 現在実行中のAPI呼び出し段階(作成/原文分析/推敲)を表す文言。実行中でなければnull
+  progressLabel?: string | null;
   fieldErrors: Record<string, string>;
   onSubmit: (request: CreateEsDocumentRequest) => void;
 }
 
 // ES入力フォーム。設問・文字数上限・ES原文を入力し、「添削する」でES文書作成→推敲まで進める。
-// PDF添付は対応するAPIがopenapi.yamlに存在しないため見た目だけ配置する(チーム合意済み)
-export function EsInputForm({ submitting, fieldErrors, onSubmit }: EsInputFormProps) {
+// PNG/JPEG/PDFの添付は POST /api/v1/es-text-extractions で抽出した文章をES原文欄へ反映する
+export function EsInputForm({ submitting, progressLabel, fieldErrors, onSubmit }: EsInputFormProps) {
   const [question, setQuestion] = useState("");
   const [characterLimit, setCharacterLimit] = useState("400");
   const [originalText, setOriginalText] = useState("");
-  const [pdfToastOpen, setPdfToastOpen] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionToast, setExtractionToast] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const originalTextLength = countCodePoints(originalText);
   const characterLimitValue = Number(characterLimit);
@@ -87,6 +111,7 @@ export function EsInputForm({ submitting, fieldErrors, onSubmit }: EsInputFormPr
 
   const canSubmit =
     !submitting &&
+    !extracting &&
     question.trim().length > 0 &&
     question.length <= MAX_QUESTION_LENGTH &&
     hasValidCharacterLimit &&
@@ -100,6 +125,32 @@ export function EsInputForm({ submitting, fieldErrors, onSubmit }: EsInputFormPr
       characterLimit: characterLimitValue,
       originalText,
     });
+  };
+
+  const handleAttachClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // 同じファイルを連続選択してもchangeイベントが発火するようにリセットする
+    event.target.value = "";
+    if (!file) return;
+
+    setExtracting(true);
+    try {
+      const extraction = await extractEsText(file);
+      setOriginalText(extraction.extractedText);
+      setExtractionToast(
+        extraction.warnings.length > 0
+          ? `テキストを抽出しました。内容を確認してください。(${extraction.warnings.join(" / ")})`
+          : "テキストを抽出しました。内容を確認してください。",
+      );
+    } catch (err) {
+      setExtractionToast(toExtractionErrorMessage(err));
+    } finally {
+      setExtracting(false);
+    }
   };
 
   return (
@@ -174,19 +225,26 @@ export function EsInputForm({ submitting, fieldErrors, onSubmit }: EsInputFormPr
         </Stack>
 
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Tooltip title="PDF添付(準備中)">
+          <Tooltip title="画像・PDFからテキストを抽出">
             <span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPTED_FILE_TYPES}
+                hidden
+                onChange={(event) => void handleFileChange(event)}
+              />
               <IconButton
-                aria-label="PDFを添付"
-                disabled={submitting}
-                onClick={() => setPdfToastOpen(true)}
+                aria-label="画像・PDFを添付してテキストを抽出"
+                disabled={submitting || extracting}
+                onClick={handleAttachClick}
                 sx={{
                   bgcolor: CHAT_COLORS.orangeMuted,
                   color: CHAT_COLORS.orange,
                   "&:hover": { bgcolor: CHAT_COLORS.orangeMuted },
                 }}
               >
-                <ClipIcon />
+                {extracting ? <CircularProgress size={20} color="inherit" /> : <ClipIcon />}
               </IconButton>
             </span>
           </Tooltip>
@@ -218,13 +276,19 @@ export function EsInputForm({ submitting, fieldErrors, onSubmit }: EsInputFormPr
         >
           添削する
         </Button>
+
+        {submitting && progressLabel && (
+          <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted, textAlign: "center" }}>
+            {progressLabel}
+          </Typography>
+        )}
       </Stack>
 
       <Snackbar
-        open={pdfToastOpen}
-        autoHideDuration={3000}
-        onClose={() => setPdfToastOpen(false)}
-        message="PDF添付は現在準備中です"
+        open={extractionToast !== null}
+        autoHideDuration={4000}
+        onClose={() => setExtractionToast(null)}
+        message={extractionToast}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       />
     </Box>

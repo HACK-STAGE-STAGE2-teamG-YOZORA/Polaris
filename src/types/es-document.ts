@@ -1,6 +1,6 @@
-// docs/openapi.yaml の /api/v1/es-documents, /api/v1/es-documents/{id}/revisions,
-// /api/v1/es-revisions/{id}/verify 系スキーマに対応する型定義。
-// バックエンドのRoute Handlerが未実装のため、この型が現時点でのAPI契約を表す。
+// docs/openapi.yaml の /api/v1/es-documents, /api/v1/es-documents/{id}/analyses,
+// /api/v1/es-documents/{id}/revisions, /api/v1/es-revisions/{id}/verify,
+// /api/v1/es-text-extractions 系スキーマに対応する型定義。
 
 export type EsDocumentStatus = "DRAFT" | "ANALYZED" | "REVISED" | "VERIFIED";
 
@@ -20,7 +20,7 @@ export interface EsDocumentSummary {
 
 export interface EsDocument extends EsDocumentSummary {
   originalText: string;
-  selectedExperienceIds: string[];
+  preferredExperienceIds: string[];
   emphasis: string[];
   analyses: EsAnalysis[];
   revisions: EsRevision[];
@@ -33,7 +33,7 @@ export interface CreateEsDocumentRequest {
   question: string;
   characterLimit: number;
   originalText: string;
-  selectedExperienceIds?: string[];
+  preferredExperienceIds?: string[];
   emphasis?: string[];
 }
 
@@ -42,7 +42,7 @@ export interface UpdateEsDocumentRequest {
   question?: string;
   characterLimit?: number;
   originalText?: string;
-  selectedExperienceIds?: string[];
+  preferredExperienceIds?: string[];
   emphasis?: string[];
 }
 
@@ -88,15 +88,35 @@ export type EsIssueCode =
 
 export type EsIssueSeverity = "ERROR" | "WARNING" | "INFO";
 
+export interface TextRange {
+  startOffset: number;
+  endOffset: number;
+}
+
 export interface EsIssue {
   code: EsIssueCode;
   severity: EsIssueSeverity;
   message: string;
   sentence?: string;
+  targetRange?: TextRange;
   relatedClaimIds?: string[];
 }
 
 export type QuestionCoverage = "ANSWERED" | "PARTIALLY_ANSWERED" | "NOT_ANSWERED";
+
+// 数値スコアではなく、設問回答状況・文字数・全主張の根拠を決定的に検査した結果
+export type SubmissionReadiness = "READY_TO_SUBMIT" | "NEEDS_REVIEW";
+
+export type EsAiCommentCategory = "EVIDENCE_STATUS" | "ISSUE" | "IMPROVEMENT_REASON";
+
+// 完成版ESの下へ、根拠状態・問題箇所・改善理由として表示するAIコメント(docs/openapi.yaml EsAiComment)
+export interface EsAiComment {
+  category: EsAiCommentCategory;
+  message: string;
+  severity: EsIssueSeverity;
+  targetRange?: TextRange;
+  evidence: ClaimEvidence[];
+}
 
 export interface EsAnalysis {
   id: string;
@@ -107,8 +127,10 @@ export interface EsAnalysis {
   characterCount: number;
   withinCharacterLimit: boolean;
   questionCoverage: QuestionCoverage;
+  submissionReadiness: SubmissionReadiness;
   claims: EsClaim[];
   issues: EsIssue[];
+  comments: EsAiComment[];
   createdAt: string;
 }
 
@@ -140,4 +162,21 @@ export interface EsRevision {
   unsupportedClaims: EsClaim[];
   verificationAnalysisId?: string;
   createdAt: string;
+}
+
+// POST /api/v1/es-text-extractions (docs/openapi.yaml参照)
+export type EsInputSourceType = "PNG" | "JPEG" | "PDF";
+
+export type EsTextExtractionMethod = "OCR" | "PDF_TEXT" | "PDF_TEXT_WITH_OCR";
+
+export interface EsTextExtraction {
+  sourceType: EsInputSourceType;
+  extractionMethod: EsTextExtractionMethod;
+  originalFilename: string;
+  // PDFの場合はページ数、画像の場合はnull
+  pageCount: number | null;
+  extractedText: string;
+  characterCount: number;
+  requiresReview: true;
+  warnings: string[];
 }

@@ -13,6 +13,8 @@ interface EsRevisionResultProps {
   esRevision: EsRevision;
   onRequestComments: () => void;
   loading: boolean;
+  // 再検査(verify)実行中の表示文言。実行中でなければnull
+  progressLabel?: string | null;
 }
 
 // 添削結果画面。「添削」バッジ付きの原文カード → 「修正結果」見出し →
@@ -22,6 +24,7 @@ export function EsRevisionResult({
   esRevision,
   onRequestComments,
   loading,
+  progressLabel,
 }: EsRevisionResultProps) {
   return (
     <Stack spacing={2}>
@@ -85,6 +88,12 @@ export function EsRevisionResult({
       >
         コメントをもらう
       </Button>
+
+      {loading && progressLabel && (
+        <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted, textAlign: "center" }}>
+          {progressLabel}
+        </Typography>
+      )}
     </Stack>
   );
 }

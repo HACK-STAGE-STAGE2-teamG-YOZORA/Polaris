@@ -26,6 +26,7 @@ export default function EsRevisionPage() {
     submissionReadiness,
     submitting,
     verifying,
+    progressLabel,
     error,
     startRevision,
     requestComments,
@@ -56,6 +57,7 @@ export default function EsRevisionPage() {
           {step === "INPUT" && (
             <EsInputForm
               submitting={submitting}
+              progressLabel={submitting ? progressLabel : null}
               fieldErrors={error?.fieldErrors ?? {}}
               onSubmit={(request) => void startRevision(request)}
             />
@@ -67,6 +69,7 @@ export default function EsRevisionPage() {
               esRevision={esRevision}
               onRequestComments={() => void requestComments()}
               loading={verifying}
+              progressLabel={verifying ? progressLabel : null}
             />
           )}
 
