@@ -4,7 +4,7 @@
 
 実装前に[設計ドキュメント](./docs/README.md)と[OpenAPI仕様](./docs/openapi.yaml)を確認してください。
 
-現在は、LM Studioを使うAI Adapter、Next.js Route Handler、Prisma／SQLite永続化まで実装されています。画面は統合途中です。
+現在は、LM Studioを使うAI Adapter、Next.js Route Handler、Prisma／PostgreSQL永続化まで実装されています。画面は統合途中です。
 
 ## 現在動くもの
 
@@ -15,7 +15,7 @@
 - 本人経験・企業事実に基づくES検査、推敲、再検査
 - AI出力のJSON Schema、参照ID、引用原文の検証
 - `/api/v1`の自己分析、経験、4軸、総合プロフィール、ES検査・推敲API
-- Prisma／SQLiteによるセッション、根拠、分析結果の永続化
+- Prisma／PostgreSQLによるセッション、根拠、分析結果の永続化
 - Google OAuth 2.0／OpenID Connectによるログイン・新規登録・ログアウトAPI
 
 ## 初回セットアップ
@@ -24,10 +24,10 @@
 npm.cmd install
 Copy-Item .env.example .env
 npm.cmd run prisma:generate
-npm.cmd run db:push
+npm.cmd run db:migrate:deploy
 ```
 
-`.env`の`LM_STUDIO_MODEL_ID`は、LM Studioで実際にロードするモデルIDと一致させてください。SQLiteの保存先を変更しない場合、`DATABASE_URL`は`.env.example`の既定値を使用できます。
+`.env`の`DATABASE_URL`をPostgreSQL 16またはNeonの接続URLへ変更してください。`.env.example`の値を使う場合は、同じユーザー・パスワード・DB名でローカルPostgreSQLを用意します。`LM_STUDIO_MODEL_ID`は、LM Studioで実際にロードするモデルIDと一致させてください。詳しいmigrationと既存SQLiteデータの方針は[PostgreSQL移行手順](./docs/postgresql-migration.md)を参照してください。
 
 ### Google認証の設定
 
@@ -83,7 +83,7 @@ npm.cmd run test:career-ai
 npm.cmd run test:ai-p0
 ```
 
-`test:ai-p0`は、一時SQLite DBと一時ポートのNext.jsサーバーを自動作成し、次をHTTP経由で検証して終了時に削除します。
+`test:ai-p0`は、一時PostgreSQL schemaと一時ポートのNext.jsサーバーを自動作成し、次をHTTP経由で検証して終了時にそのschemaだけを削除します。
 
 - 自己分析チャット、冪等再送、経験抽出・確認、追加回答後の再分析、4軸生成・本人評価、レポート確定、複数セッション総合分析
 - 経験0件の根拠不足結果、ADR-032のデータ不足／十分状態

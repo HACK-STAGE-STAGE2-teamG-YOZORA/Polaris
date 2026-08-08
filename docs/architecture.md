@@ -13,12 +13,12 @@ flowchart LR
     S --> F["Company Source Fetcher"]
     S --> E["ES Text Extractor"]
     A --> L["LM Studio<br>127.0.0.1:1234"]
-    D --> Q[("SQLite")]
+    D --> Q[("PostgreSQL 16 / Neon")]
     F --> W["企業公式サイト"]
     E --> O["PDF text extraction<br>Local OCR"]
 ```
 
-ハッカソン版ではNext.js、SQLite、LM Studio、ブラウザを同じWindows PC上で動かす。LM Studioは`127.0.0.1`だけで待ち受け、ブラウザから直接呼び出さない。
+ハッカソン版ではNext.js、LM Studio、ブラウザを同じWindows PC上で動かし、永続データは複数端末から共有できるPostgreSQL 16（NeonまたはローカルPostgreSQL）へ保存する。LM Studioは`127.0.0.1`だけで待ち受け、ブラウザから直接呼び出さない。
 
 ## 2. 技術スタックの基準
 
@@ -28,8 +28,8 @@ flowchart LR
 | Web | Next.js App Router / React | Route HandlersはNode.js runtime |
 | UI | Material UI | チャット、カード、比較画面 |
 | フォーム | React Hook Form + Zod | OpenAPIと同じ制約を反映 |
-| DB | SQLite | ローカルMVP。所有データは認証ユーザー単位で分離 |
-| ORM | Prisma ORM + `@prisma/adapter-better-sqlite3` | Prisma Schemaとmigrationを正本とする |
+| DB | PostgreSQL 16 | 複数端末から同時利用し、所有データは認証ユーザー単位で分離 |
+| ORM | Prisma ORM + `@prisma/adapter-pg` | Prisma Schemaとmigrationを正本とする |
 | AI | LM Studio | TypeScript SDKをAI Adapter内に隔離 |
 | 認証 | Google OAuth 2.0 / OpenID Connect | P1。公式`google-auth-library`、Authorization Code + PKCE、DBセッション |
 | HTML解析 | Cheerio | P1のURL取り込み |
@@ -118,7 +118,7 @@ sequenceDiagram
     participant Browser as Browser
     participant API as Polaris API
     participant Google as Google OIDC
-    participant DB as SQLite
+    participant DB as PostgreSQL
     User->>Browser: Googleでログイン
     Browser->>API: GET /auth/google/start
     API-->>Browser: state・PKCE Cookie + Googleへ302
@@ -146,7 +146,7 @@ sequenceDiagram
     participant API as Route Handler
     participant App as SelfAnalysisService
     participant AI as LM Studio Adapter
-    participant DB as SQLite
+    participant DB as PostgreSQL
 
     User->>UI: 経験を回答
     UI->>API: POST /analysis-sessions/{id}/messages
@@ -173,7 +173,7 @@ sequenceDiagram
     participant UI as Frontend
     participant API as API
     participant AI as AI Adapter
-    participant DB as SQLite
+    participant DB as PostgreSQL
 
     User->>UI: 経験カード生成
     UI->>API: POST /analysis-sessions/{id}/experience-drafts
@@ -220,7 +220,7 @@ sequenceDiagram
     participant API as API
     participant Extractor as ES Text Extractor
     participant AI as AI Adapter
-    participant DB as SQLite
+    participant DB as PostgreSQL
 
     User->>UI: 文章を貼り付け、またはPNG/JPEG/PDFを選択
     alt PNG/JPEG/PDF入力
@@ -283,7 +283,7 @@ sequenceDiagram
     participant Run as RecommendationRunner
     participant Fetch as SafeUrlFetcher
     participant AI as AI Adapter
-    participant DB as SQLite
+    participant DB as PostgreSQL
 
     User->>UI: 企業提案を開始
     UI->>API: POST /company-recommendation-runs
@@ -305,7 +305,7 @@ sequenceDiagram
     API-->>UI: 進捗または提案結果
 ```
 
-ローカルMVPではRedis等の外部キューを導入せず、SQLiteへ実行状態を保存する単一プロセスrunnerとする。
+ハッカソン版ではRedis等の外部キューを導入せず、PostgreSQLへ実行状態を保存する単一プロセスrunnerとする。
 開発サーバー再起動後は`QUEUED`または処理中のrunを`FAILED`へ更新し、再実行を案内する。
 
 企業提案の入力がコンテキスト上限を超える場合は、各候補企業・各確認済み経験を最低1件残したまま、関連度の低い追加事実、追加出典、追加経験の順で除外する。企業事実と原文引用の途中切断は行わない。最小構成でも収まらない場合はAIを呼ばず`AI_INPUT_TOO_LARGE`を返す。
@@ -319,7 +319,7 @@ sequenceDiagram
     actor User as ユーザー
     participant UI as Frontend
     participant API as API
-    participant DB as SQLite
+    participant DB as PostgreSQL
     participant AI as AI Adapter
 
     User->>UI: 面接質問の生成条件を指定

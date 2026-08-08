@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdir, rm } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { validateOpenApiResponse } from './openapi-contract.ts';
@@ -121,14 +121,12 @@ function buildE2eDbUrl(schemaName: string): string {
   if (!base) throw new Error("DATABASE_URL が設定されていません。");
   const url = new URL(base);
   url.searchParams.set('schema', schemaName);
-  url.searchParams.set('search_path', schemaName);
   return url.toString();
 }
 
 /** ランダムなスキーマ名を生成する（PostgreSQLの識別子として有効な形式）。 */
 function randomSchemaName(): string {
-  const suffix = Math.random().toString(36).slice(2, 10);
-  return `e2e_${suffix}`;
+  return `e2e_${randomBytes(8).toString('hex')}`;
 }
 
 export async function withE2eServer(
@@ -136,9 +134,6 @@ export async function withE2eServer(
   overrides: Record<string, string> = {},
   setup?: (databaseUrl: string, userId: string, schemaName: string) => Promise<void>,
 ): Promise<void> {
-  const tempParent = resolve(".tmp");
-  await mkdir(tempParent, { recursive: true });
-
   const schemaName = randomSchemaName();
   const databaseUrl = buildE2eDbUrl(schemaName);
   const port = await availablePort();
@@ -162,10 +157,10 @@ export async function withE2eServer(
 
     prepareProject(env);
 
-    // PostgreSQL用のスキーマにテーブルを作成
+    // コミット済みmigrationをE2E用スキーマへ適用する。
     runNodeCli(
       "node_modules/prisma/build/index.js",
-      ["db", "push", "--url", databaseUrl],
+      ["migrate", "deploy"],
       env,
     );
 
@@ -265,6 +260,5 @@ export async function withE2eServer(
       console.warn(`E2Eスキーマ "${schemaName}" の削除に失敗しました:`, e);
     }
     await adminPool.end();
-    await rm(tempParent, { recursive: true, force: true });
   }
 }

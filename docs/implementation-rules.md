@@ -119,9 +119,11 @@ URL取り込みを実装する場合は、文字列のホスト名検査だけ�
 - `text/html`、`text/plain`、P2では許可したPDF/DOCXだけを受け入れる。
 - HTMLのscript、style、noscript、navigation、広告要素を除去する。
 
-## 6. ローカルデータとプライバシー
+## 6. データとプライバシー
 
-- SQLite DB、ログ、アップロード一時ファイルをGitへ含めない。
+- PostgreSQL接続URL、DBバックアップ、ログ、アップロード一時ファイルをGitへ含めない。
+- DB変更はPrisma migrationとしてコミットし、共有環境・CIでは`prisma migrate deploy`だけを使う。`prisma db push`で共有DBを変更しない。
+- E2Eは実行ごとのPostgreSQL schemaへmigrationを適用し、終了時はそのschemaだけを削除する。`.tmp`など共有一時ディレクトリ全体を削除しない。
 - 電話番号、詳細住所、生年月日、顔写真、マイナンバーを独立項目として収集・永続保存しない。ES画像/PDFに含まれる非テキスト情報も抽出対象・保存対象にしない。
 - ESアップロードの元ファイル名、ファイル内容、抽出文をログへ出さない。MIME type、byte数、ページ数、処理時間、成否だけを記録する。
 - ログへ会話全文・ES全文・企業取得原文を出さない。ID、処理時間、文字数、結果件数だけを基本とする。
