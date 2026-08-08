@@ -4,19 +4,24 @@ import { aiError, internalError, objectArray, problem, stringArray } from '@/ser
 import { deriveAxisPosition } from '@/server/axis';
 import { formatOverallProfile } from '@/server/formatters';
 import type { AxisPosition, SelfAnalysisAxis } from '@/types/dashboard';
+import { requireAuth } from '@/server/auth/require-auth';
 
-export async function POST(): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
+  let authenticatedUserId: string | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
+    authenticatedUserId = auth.userId;
     const [reports, experiences, evidenceItems, quotes] = await Promise.all([
-      prisma.selfAnalysisReport.findMany({ where: { sourceSession: { status: 'COMPLETED' } }, orderBy: { generatedAt: 'asc' } }),
+      prisma.selfAnalysisReport.findMany({ where: { sourceSession: { userId: auth.userId, status: 'COMPLETED' } }, orderBy: { generatedAt: 'asc' } }),
       prisma.experience.findMany({
-        where: { status: 'CONFIRMED' },
+        where: { userId: auth.userId, status: 'CONFIRMED' },
         include: { quotes: { select: { messageId: true, quote: true } } },
       }),
-      prisma.axisEvidenceItem.findMany({ where: { experience: { status: 'CONFIRMED' } } }),
+      prisma.axisEvidenceItem.findMany({ where: { experience: { userId: auth.userId, status: 'CONFIRMED' } } }),
       prisma.experienceQuote.findMany({
-        where: { experience: { status: 'CONFIRMED' } },
+        where: { experience: { userId: auth.userId, status: 'CONFIRMED' } },
         include: { message: { select: { sessionId: true } } },
       }),
     ]);
@@ -78,7 +83,7 @@ export async function POST(): Promise<Response> {
     });
     const completedSessionCount = new Set(reports.map((report) => report.sourceSessionId)).size;
     const userMessageCount = await prisma.message.count({
-      where: { role: 'USER', session: { status: 'COMPLETED' } },
+      where: { role: 'USER', session: { userId: auth.userId, status: 'COMPLETED' } },
     });
     const warningReasons = [
       ...(completedSessionCount < 2 ? ['FEW_COMPLETED_SESSIONS'] : []),
@@ -87,9 +92,9 @@ export async function POST(): Promise<Response> {
     const generatedAt = new Date();
     const profile = await prisma.$transaction(async (tx) => {
       const saved = await tx.overallSelfAnalysisProfile.upsert({
-      where: { id: 'default' },
+      where: { userId: auth.userId },
       create: {
-        id: 'default',
+        userId: auth.userId,
         summary: output.summary,
         axisTrends,
         strengths: output.strengths,
@@ -118,13 +123,15 @@ export async function POST(): Promise<Response> {
         generatedAt,
       },
       });
-      await tx.esAnalysis.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-      await tx.esRevision.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.esAnalysis.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+      await tx.esRevision.updateMany({ where: { document: { userId: auth.userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
       return saved;
     });
     return Response.json(formatOverallProfile(profile));
   } catch (error) {
-    await prisma.overallSelfAnalysisProfile.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } }).catch(() => undefined);
+    if (authenticatedUserId) {
+      await prisma.overallSelfAnalysisProfile.updateMany({ where: { userId: authenticatedUserId, freshness: 'CURRENT' }, data: { freshness: 'STALE' } }).catch(() => undefined);
+    }
     if (error instanceof PolarisAiError) return aiError(error);
     return internalError(error, '総合自己分析の再計算');
   } finally {

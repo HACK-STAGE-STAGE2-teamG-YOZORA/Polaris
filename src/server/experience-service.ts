@@ -62,6 +62,7 @@ function isStringArray(value: unknown): value is string[] {
 export async function validateExperienceSource(
   sourceSessionId: unknown,
   sourceMessageId: unknown,
+  userId: string,
 ): Promise<{ sourceSessionId: string | null; sourceMessageId: string | null } | string> {
   if (sourceSessionId !== undefined && typeof sourceSessionId !== 'string') return 'sourceSessionId が不正です。';
   if (sourceMessageId !== undefined && typeof sourceMessageId !== 'string') return 'sourceMessageId が不正です。';
@@ -70,7 +71,7 @@ export async function validateExperienceSource(
   if (messageId && !sessionId) return 'sourceMessageId を指定する場合は sourceSessionId も必要です。';
 
   if (sessionId) {
-    const session = await prisma.analysisSession.findUnique({ where: { id: sessionId }, select: { id: true } });
+    const session = await prisma.analysisSession.findFirst({ where: { id: sessionId, userId }, select: { id: true } });
     if (!session) return 'sourceSessionId に該当するセッションがありません。';
   }
   if (messageId) {
@@ -85,6 +86,7 @@ export async function validateExperienceSource(
 export async function staleDependentResults(
   tx: Prisma.TransactionClient,
   sourceSessionId: string | null,
+  userId: string,
 ) {
   const activeAssessments = sourceSessionId
     ? await tx.axisAssessment.findMany({
@@ -96,9 +98,9 @@ export async function staleDependentResults(
     await tx.axisAssessment.updateMany({ where: { sourceSessionId, isStale: false }, data: { isStale: true } });
     await tx.selfAnalysisReport.updateMany({ where: { sourceSessionId, isStale: false }, data: { isStale: true } });
   }
-  await tx.overallSelfAnalysisProfile.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-  await tx.esAnalysis.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
-  await tx.esRevision.updateMany({ where: { freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+  await tx.overallSelfAnalysisProfile.updateMany({ where: { userId, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+  await tx.esAnalysis.updateMany({ where: { document: { userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
+  await tx.esRevision.updateMany({ where: { document: { userId }, freshness: 'CURRENT' }, data: { freshness: 'STALE' } });
   return activeAssessments;
 }
 

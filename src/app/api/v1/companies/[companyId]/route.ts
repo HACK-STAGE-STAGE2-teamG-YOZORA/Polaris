@@ -1,14 +1,17 @@
 import { prisma } from '@/lib/prisma';
 import { internalError, jsonBody, problem } from '@/server/api';
 import { companyInclude, formatCompany, validHttpUrl } from '@/server/company';
+import { requireAuth } from '@/server/auth/require-auth';
 
 type Context = { params: Promise<{ companyId: string }> };
 const FIELDS = ['name', 'targetRole', 'officialUrl', 'careerUrl', 'recommendationEligible', 'note'] as const;
 
-export async function GET(_request: Request, context: Context): Promise<Response> {
+export async function GET(request: Request, context: Context): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { companyId } = await context.params;
-    const company = await prisma.company.findUnique({ where: { id: companyId }, include: companyInclude });
+    const company = await prisma.company.findFirst({ where: { id: companyId, userId: auth.userId }, include: companyInclude });
     if (!company) return problem(404, 'NOT_FOUND', '指定された企業がありません。');
     return Response.json(formatCompany(company));
   } catch (error) {
@@ -18,6 +21,8 @@ export async function GET(_request: Request, context: Context): Promise<Response
 
 export async function PATCH(request: Request, context: Context): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { companyId } = await context.params;
     const body = await jsonBody(request);
     if (!body || Object.keys(body).length === 0 || Object.keys(body).some((key) => !FIELDS.includes(key as never))) {
@@ -33,7 +38,7 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
       if (body[field] !== undefined && body[field] !== null && !validHttpUrl(body[field])) return problem(422, 'VALIDATION_ERROR', `${field} は http(s) URLまたは null で指定してください。`);
     }
     if (body.recommendationEligible !== undefined && typeof body.recommendationEligible !== 'boolean') return problem(422, 'VALIDATION_ERROR', 'recommendationEligible が不正です。');
-    const exists = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
+    const exists = await prisma.company.findFirst({ where: { id: companyId, userId: auth.userId }, select: { id: true } });
     if (!exists) return problem(404, 'NOT_FOUND', '指定された企業がありません。');
     const data: Record<string, unknown> = {};
     for (const field of FIELDS) if (Object.hasOwn(body, field)) data[field] = body[field];
@@ -45,10 +50,12 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
   }
 }
 
-export async function DELETE(_request: Request, context: Context): Promise<Response> {
+export async function DELETE(request: Request, context: Context): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { companyId } = await context.params;
-    const exists = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
+    const exists = await prisma.company.findFirst({ where: { id: companyId, userId: auth.userId }, select: { id: true } });
     if (!exists) return problem(404, 'NOT_FOUND', '指定された企業がありません。');
     await prisma.$transaction(async (tx) => {
       await tx.companyRecommendation.deleteMany({ where: { companyId } });

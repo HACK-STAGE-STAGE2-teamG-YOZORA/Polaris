@@ -8,15 +8,18 @@ import {
   validateExperienceFields,
 } from '@/server/experience-service';
 import { formatExperience } from '@/server/formatters';
+import { requireAuth } from '@/server/auth/require-auth';
 
 type Context = { params: Promise<{ experienceId: string }> };
 
 const includeQuotes = { quotes: { select: { messageId: true, quote: true } } } as const;
 
-export async function GET(_request: Request, context: Context): Promise<Response> {
+export async function GET(request: Request, context: Context): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { experienceId } = await context.params;
-    const experience = await prisma.experience.findUnique({ where: { id: experienceId }, include: includeQuotes });
+    const experience = await prisma.experience.findFirst({ where: { id: experienceId, userId: auth.userId }, include: includeQuotes });
     if (!experience) return problem(404, 'NOT_FOUND', '指定された体験カードがありません。');
     return Response.json(formatExperience(experience));
   } catch (error) {
@@ -26,6 +29,8 @@ export async function GET(_request: Request, context: Context): Promise<Response
 
 export async function PATCH(request: Request, context: Context): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { experienceId } = await context.params;
     const body = await jsonBody(request);
     if (!body || Object.keys(body).length === 0) {
@@ -41,7 +46,7 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
     const validationError = validateExperienceFields(body, { partial: true });
     if (validationError) return problem(422, 'VALIDATION_ERROR', validationError);
 
-    const existing = await prisma.experience.findUnique({ where: { id: experienceId }, include: includeQuotes });
+    const existing = await prisma.experience.findFirst({ where: { id: experienceId, userId: auth.userId }, include: includeQuotes });
     if (!existing) return problem(404, 'NOT_FOUND', '指定された体験カードがありません。');
     const contentChanged = EXPERIENCE_CONTENT_FIELDS.some((field) => Object.hasOwn(body, field));
     const nextStatus = body.status === 'CONFIRMED'
@@ -66,7 +71,7 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
         include: includeQuotes,
       });
       const staledAssessments = contentChanged || nextStatus !== existing.status
-        ? await staleDependentResults(tx, existing.sourceSessionId)
+        ? await staleDependentResults(tx, existing.sourceSessionId, auth.userId)
         : [];
       if (nextStatus === 'CONFIRMED' && (contentChanged || existing.status !== 'CONFIRMED')) {
         await replacePromotedEvidence(tx, updated);
@@ -85,13 +90,15 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
   }
 }
 
-export async function DELETE(_request: Request, context: Context): Promise<Response> {
+export async function DELETE(request: Request, context: Context): Promise<Response> {
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { experienceId } = await context.params;
-    const existing = await prisma.experience.findUnique({ where: { id: experienceId } });
+    const existing = await prisma.experience.findFirst({ where: { id: experienceId, userId: auth.userId } });
     if (!existing) return problem(404, 'NOT_FOUND', '指定された体験カードがありません。');
     await prisma.$transaction(async (tx) => {
-      await staleDependentResults(tx, existing.sourceSessionId);
+      await staleDependentResults(tx, existing.sourceSessionId, auth.userId);
       await deleteExperienceEvidence(tx, experienceId);
       await tx.experience.delete({ where: { id: experienceId } });
     });

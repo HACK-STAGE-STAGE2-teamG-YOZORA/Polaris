@@ -19,6 +19,8 @@
 | ES主張 | ES文中の本人・企業・将来に関する検査単位 | 根拠との照合結果を4段階で保持する |
 | ES指摘範囲 | ES原文でコメントの対象となる文字範囲 | サーバーが原文との一致を検証できた場合のみ |
 | 推敲変更 | 原文の一部をどう変えたかとその理由 | 前後文、理由、根拠、採否を保持する |
+| ユーザー | Googleで本人確認されたPolaris利用者 | 検証済みIDトークンの`sub`と確認済みメールを持つこと |
+| 認証セッション | ログイン後にPolarisが発行する失効可能なセッション | Cookie原文のSHA-256ハッシュがDBにあり、有効期限内であること |
 
 ## 2. 独自4軸
 
@@ -66,6 +68,13 @@
 
 ```mermaid
 erDiagram
+    USER ||--o{ AUTH_SESSION : has
+    USER ||--o{ ANALYSIS_SESSION : owns
+    USER ||--o{ EXPERIENCE : owns
+    USER ||--o{ OVERALL_SELF_ANALYSIS_PROFILE : owns
+    USER ||--o{ COMPANY : owns
+    USER ||--o{ ES_DOCUMENT : owns
+    USER ||--o{ RECOMMENDATION_RUN : owns
     ANALYSIS_SESSION ||--o{ MESSAGE : contains
     ANALYSIS_SESSION ||--o{ EXPERIENCE : produces
     EXPERIENCE ||--o{ AXIS_EVIDENCE_ITEM : yields
@@ -206,7 +215,7 @@ finalize成功時に、そのセッションについて次を不変スナップ
 
 ホーム総合プロフィールは、全`COMPLETED`セッションのレポート、全`CONFIRMED`経験、正式な軸根拠、本人評価を入力として再計算し、次を現在値として保存する。
 
-P0は単一ユーザーのため、総合プロフィールは`id=default`の1行をupsertし、過去の総合プロフィール履歴は持たない。元となるセッションレポートは保持する。
+総合プロフィールは`user_id`ごとに1行をupsertし、同じユーザーの過去の総合プロフィール履歴は持たない。元となるセッションレポートはユーザーごとに保持する。
 
 - 4軸それぞれの総合位置、コメント、根拠ID、参照セッションID
 - 全体要約
@@ -275,7 +284,9 @@ ES指摘範囲はUnicodeコードポイント基準の`startOffset`（含む）�
 
 | 表 | 役割 |
 |---|---|
-| `analysis_sessions` | 自己分析の進捗、再開、再開始、完了状態 |
+| `users` | Google `sub`を一意な外部識別子として持つ利用者 |
+| `auth_sessions` | ハッシュ化したアプリセッションと有効期限。Googleトークンは持たない |
+| `analysis_sessions` | ユーザー所有の自己分析の進捗、再開、再開始、完了状態 |
 | `messages` | 会話原文と未確認の軸根拠候補。根拠引用の最上流 |
 | `experiences` | 経験カード本体 |
 | `experience_quotes` | 経験と会話原文の対応 |
@@ -298,3 +309,5 @@ ES指摘範囲はUnicodeコードポイント基準の`startOffset`（含む）�
 
 Prisma実装の正本は[`prisma/schema.prisma`](../prisma/schema.prisma)。`database-schema.sql`はレビュー用参照DDLであり、実migrationはPrisma Migrateで生成する。
 面接質問セットはP1では永続化しないため、最小データベース表へ追加しない。
+
+直接作成・検索される集約ルートは必須の`user_id`を持つ。メッセージ、軸分析、レポート、企業出典、ES分析・推敲などの子データは親リレーション経由で所有者を決定し、異なるユーザーの親同士を関連付けない。

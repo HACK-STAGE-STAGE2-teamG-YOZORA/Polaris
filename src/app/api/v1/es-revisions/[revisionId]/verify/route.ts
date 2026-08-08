@@ -2,17 +2,20 @@ import { LmStudioPolarisAiGateway, PolarisAiError } from '@/infrastructure/ai/lm
 import { prisma } from '@/lib/prisma';
 import { aiError, internalError, problem } from '@/server/api';
 import { buildEsAnalysisInput, formatAnalysis, persistAnalysis } from '@/server/es';
+import { requireAuth } from '@/server/auth/require-auth';
 
 type Context = { params: Promise<{ revisionId: string }> };
 
-export async function POST(_request: Request, context: Context): Promise<Response> {
+export async function POST(request: Request, context: Context): Promise<Response> {
   let ai: LmStudioPolarisAiGateway | undefined;
   try {
+    const auth = await requireAuth(request);
+    if ('response' in auth) return auth.response;
     const { revisionId } = await context.params;
-    const revision = await prisma.esRevision.findUnique({ where: { id: revisionId }, include: { document: true } });
+    const revision = await prisma.esRevision.findFirst({ where: { id: revisionId, document: { userId: auth.userId } }, include: { document: true } });
     if (!revision) return problem(404, 'NOT_FOUND', '指定されたES推敲案がありません。');
     if (revision.freshness === 'STALE') return problem(409, 'CONFLICT', '古くなった推敲案は再検査できません。');
-    const input = await buildEsAnalysisInput(revision.document, revision.revisedText);
+    const input = await buildEsAnalysisInput(revision.document, revision.revisedText, auth.userId);
     ai = new LmStudioPolarisAiGateway();
     const output = await ai.analyzeEs(input);
     const analysisId = await prisma.$transaction(async (tx) => {

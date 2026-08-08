@@ -16,11 +16,13 @@
 | ES入力 | 文章貼り付け、PNG/JPEG画像、PDFから原文を入力し、抽出文を確認後に設問・文字数・任意の企業・経験と保存 | `POST /es-text-extractions`, `GET/POST /es-documents`, `GET/PATCH /es-documents/{id}` | P0 |
 | ES検査結果 | 主張の根拠状態、問題箇所、コメントを表示 | `POST /es-documents/{id}/analyses` | P0 |
 | ES完成版 | そのまま提出可能な品質を目標にしたES案と、その下の根拠状態・問題箇所・改善理由コメントを表示 | `POST /es-documents/{id}/revisions`, `POST /es-revisions/{id}/verify` | P0 |
-| Googleログイン | Google認証、新規登録、ログアウト | P1着手時に認証APIを追加 | P1 |
+| Googleログイン | Google認証、新規登録、ログイン状態確認、ログアウト | `GET /auth/google/start`, `GET /auth/google/callback`, `GET /auth/session`, `POST /auth/logout` | P1 |
 | 企業提案 | 登録企業の公式情報に基づく本命／挑戦／意外枠 | `POST /company-recommendation-runs`, `GET /company-recommendation-runs/{id}` | P1 |
 | 面接準備 | 確認済み経験の深掘り質問と、公式企業情報に基づく逆質問 | `POST /interview-questions/generate` | P1 |
 
 パス表記では共通の`/api/v1`を省略している。
+
+起動確認とGoogle認証開始・コールバックを除く画面APIはログイン必須である。`GET /auth/session`が未認証を返した場合、個人データ画面を描画せずGoogleログイン画面へ案内する。
 
 ## 2. ホーム表示状態
 

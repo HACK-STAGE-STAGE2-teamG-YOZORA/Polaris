@@ -9,6 +9,20 @@
 - `completedAt`、`confirmedAt`、`companyId`、`targetRole`など、未設定自体に意味がある成功レスポンス項目は省略せず`null`を返し、OpenAPIでもnullableとして定義する。
 - 成功レスポンスはリソースまたは`items`を直接返し、不要な`data`ラッパーを付けない。
 - エラーは`application/problem+json`とし、OpenAPIの`ErrorResponse`を使う。
+
+### 1.1 Google認証とセッション
+
+- Google OAuth 2.0 Authorization Code FlowにPKCE（S256）と暗号学的乱数の`state`を必須とし、どちらも10分で失効するHttpOnly・SameSite=Lax Cookieへ一時保存する。
+- コールバックでは`state`を定時間比較し、Google公式ライブラリでIDトークンの署名、issuer、audience、有効期限を検証する。確認済みメールがないアカウントは登録しない。
+- Googleアカウントの一意性には変更可能なメールアドレスではなく`sub`を使う。アクセストークン、リフレッシュトークン、IDトークン、OAuth認可コードをDB・ログへ保存しない。
+- アプリセッションCookieは32バイト以上の乱数、HttpOnly、SameSite=Lax、`Path=/`とする。HTTPSではSecureを必須にし、HTTPはlocalhost開発だけ許可する。
+- DBにはセッションCookie原文ではなくSHA-256ハッシュだけを保存する。ログアウト時はDB行を削除し、Cookieを即時失効させる。
+- 認証レスポンスは`Cache-Control: no-store`とする。秘密情報、コード、トークン、Cookie、Googleからの例外本文をログへ出さない。
+- Google設定がない場合は認証開始を`AUTH_NOT_CONFIGURED`で停止する。System APIと認証開始・コールバック以外は`cookieAuth`を必須とし、未認証時は`401 AUTH_REQUIRED`を返す。
+- 一覧・集計・再計算・非同期処理を含むすべてのDBクエリを認証ユーザーで絞る。全件を取得してからアプリ側で除外してはならない。
+- パスID、関連ID、JSON内の経験・企業・レポートIDは同一ユーザー所有をDBクエリで検証する。他ユーザー所有と不存在は区別せず`404 NOT_FOUND`、入力配列に混在する場合は内容を明かさない`VALIDATION_ERROR`とする。
+- 全ユーザーへ影響するstale更新・進行中セッション検索・企業提案実行中検索を禁止し、必ず認証ユーザー条件を含める。
+- 集約ルートの作成時は`userId`をサーバーの認証セッションから設定し、リクエスト本文の所有者IDは受け付けない。
 - `clientMessageId`付きチャット送信は冪等。同じIDの再送では同じ保存済み結果を返す。
 - 4軸のAPI enumは`ENERGY_SOURCE`、`ACTION_STYLE`、`SATISFACTION_SOURCE`、`PREFERRED_ENVIRONMENT`を使う。画面表示名をDB値にしない。
 - 文字範囲offsetはUnicodeコードポイント基準で、`startOffset`を含み`endOffset`を含まない。
@@ -160,6 +174,7 @@ URL取り込みを実装する場合は、文字列のホスト名検査だけ�
 - URL/IP拒否ルール
 - stale伝播ルール
 - AI出力のID・引用検証
+- OAuth用乱数、PKCE S256、セッションハッシュ、`state`定時間比較、認証設定値の制約
 
 ### 契約テスト
 
@@ -168,6 +183,8 @@ URL取り込みを実装する場合は、文字列のホスト名検査だけ�
 - AI代表出力が`contracts/ai`へ適合する。
 - すべてのエラーが`ErrorResponse`へ適合する。
 - ES文字抽出レスポンスが`EsTextExtraction`へ適合し、`requiresReview=true`である。
+- Google未設定時の認証開始、未認証セッション取得、冪等なログアウトがOpenAPIへ適合する。
+- ユーザーAの一覧へユーザーBのデータが出ないことと、ユーザーBがユーザーAのIDをGET／PATCH／DELETE／関連付けに使えないことを複数ユーザーE2Eで検証する。
 
 ### デモE2E
 
