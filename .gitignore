@@ -3,6 +3,7 @@ node_modules/
 .next/
 out/
 *.tsbuildinfo
+next-env.d.ts
 src/generated/prisma/
 
 # Local environment
