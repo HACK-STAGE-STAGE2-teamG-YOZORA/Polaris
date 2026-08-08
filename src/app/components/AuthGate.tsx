@@ -8,7 +8,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 
 import { BottomNav } from "@/app/components/BottomNav";
 import { apiGet } from "@/lib/api/client";
-import { HOME_PATH, LOGIN_PATH } from "@/shared/routes";
+import { HOME_PATH, LOGIN_PATH, isPublicPath } from "@/shared/routes";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { AuthSessionResponse, AuthUser } from "@/types/auth";
 
@@ -67,19 +67,22 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, []);
 
   const onLoginPage = pathname === LOGIN_PATH;
+  // ログイン画面と起動確認画面は未ログインのまま開ける（docs/screen-api-map.md）
+  const onPublicPage = isPublicPath(pathname);
 
   useEffect(() => {
-    if (status === "anonymous" && !onLoginPage) {
+    if (status === "anonymous" && !onPublicPage) {
       router.replace(LOGIN_PATH);
     }
     if (status === "authenticated" && onLoginPage) {
       router.replace(HOME_PATH);
     }
-  }, [status, onLoginPage, router]);
+  }, [status, onPublicPage, onLoginPage, router]);
 
-  // 確認中と、リダイレクト待ちの間は中身を描画しない
-  if (status === "loading") return <LoadingScreen />;
-  if (status === "anonymous" && !onLoginPage) return <LoadingScreen />;
+  // 認証必須の画面だけ、確認中とリダイレクト待ちの間は中身を描画しない。
+  // 起動確認はDB・LM Studioが落ちている状況を見るための画面なので、
+  // GET /auth/session の応答を待たずに描画する
+  if (!onPublicPage && (status === "loading" || status === "anonymous")) return <LoadingScreen />;
   if (status === "authenticated" && onLoginPage) return <LoadingScreen />;
 
   return (

@@ -1,6 +1,7 @@
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
 
+import { AXIS_LABELS } from "@/shared/self-analysis/axis-labels";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { AnalysisProgress, SelfAnalysisAxis } from "@/types/analysis-session";
 
@@ -37,7 +38,7 @@ export function ProgressBadge({ progress, missingAxes, experienceReady }: Progre
       )}
       {missingAxes.length > 0 && (
         <Chip
-          label={`未確認: ${missingAxes.join(", ")}`}
+          label={`未確認: ${missingAxes.map((axis) => AXIS_LABELS[axis].name).join("、")}`}
           variant="outlined"
           sx={{ color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder }}
         />

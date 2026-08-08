@@ -1,21 +1,61 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
+import { AxisAssessmentReview } from "./components/AxisAssessmentReview";
 import { CompletionBanner } from "./components/CompletionBanner";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { ExperienceDraftPanel } from "./components/ExperienceDraftPanel";
 import { MessageComposer } from "./components/MessageComposer";
 import { MessageList } from "./components/MessageList";
 import { ProgressBadge } from "./components/ProgressBadge";
 import { SessionStartForm } from "./components/SessionStartForm";
 import { StartModeChoice } from "./components/StartModeChoice";
 import { useAnalysisChat } from "./use-analysis-chat";
+import type { InitialStartMode } from "./use-analysis-chat";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 import type { SelfAnalysisAxis } from "@/types/analysis-session";
+
+// 画面全体の背景。ローディング時と本体で同じ見た目にするために切り出す
+function ChatBackground({ children }: { children: React.ReactNode }) {
+  return (
+    <Box
+      sx={{
+        minHeight: "100dvh",
+        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
+        display: "flex",
+        justifyContent: "center",
+        pb: "72px",
+      }}
+    >
+      <Box sx={{ width: "100%", maxWidth: 560, px: 2, pt: 3, display: "flex", flexDirection: "column" }}>
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
+// useSearchParamsはSuspense境界の内側でだけ使える（Next.jsの静的レンダリング制約）
+export default function AnalysisChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <ChatBackground>
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+            <CircularProgress size={24} sx={{ color: CHAT_COLORS.orange }} />
+          </Box>
+        </ChatBackground>
+      }
+    >
+      <AnalysisChatContent />
+    </Suspense>
+  );
+}
 
 // このファイルは状態とAPI呼び出しを持つuseAnalysisChatフックと、
 // 見た目だけを担うcomponents/配下を繋ぐだけの薄い層にする。
@@ -25,8 +65,14 @@ import type { SelfAnalysisAxis } from "@/types/analysis-session";
 //   1. checkingCurrent          → 進行中セッション確認中のローディング
 //   2. currentSession かつ 未選択 → チャット開始選択(StartModeChoice: 続きから/初めから)
 //   3. currentSessionなし、または「初めから」選択後 → SessionStartForm
-//   4. session確定後             → チャット本体(進捗・終了案内・履歴・入力欄)
-export default function AnalysisChatPage() {
+//   4. session確定後             → チャット本体(進捗・経験カード確認・終了案内・4軸評価・履歴・入力欄)
+function AnalysisChatContent() {
+  // ホームの「続きから」「初めから」から渡される開始モード。不正値は無視して通常の選択画面に戻す
+  const searchParams = useSearchParams();
+  const startParam = searchParams.get("start");
+  const initialStartMode: InitialStartMode | undefined =
+    startParam === "resume" || startParam === "new" ? startParam : undefined;
+
   const {
     checkingCurrent,
     currentSession,
@@ -41,15 +87,28 @@ export default function AnalysisChatPage() {
     sending,
     generatingResult,
     assessments,
+    reviewingAxisId,
     finalizingSession,
+    draftExperience,
+    creatingDraft,
+    savingDraft,
+    draftNotice,
+    recomputeFailed,
+    unreviewedAxes,
+    hasStaleAssessment,
+    canFinalize,
     error,
     resumeCurrentSession,
     chooseStartNew,
     startSession,
     sendMessage,
+    createDraft,
+    saveDraft,
+    dismissDraft,
     generateResult,
+    reviewAssessment,
     finalizeSession,
-  } = useAnalysisChat();
+  } = useAnalysisChat(initialStartMode);
 
   // 送信中の入力内容はこの画面だけのUI状態なので、フックではなくここで持つ
   const [draftContent, setDraftContent] = useState("");
@@ -72,18 +131,11 @@ export default function AnalysisChatPage() {
     }
   }, [draftContent, sendMessage]);
 
+  const completed = session?.status === "COMPLETED";
+
   return (
-    <Box
-      sx={{
-        minHeight: "100dvh",
-        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
-        display: "flex",
-        justifyContent: "center",
-        pb: "72px",
-      }}
-    >
-      <Box sx={{ width: "100%", maxWidth: 560, px: 2, pt: 3, display: "flex", flexDirection: "column" }}>
-        <Stack spacing={2}>
+    <ChatBackground>
+      <Stack spacing={2}>
           <Typography
             variant="h6"
             component="h1"
@@ -130,6 +182,22 @@ export default function AnalysisChatPage() {
                 experienceReady={experienceReady}
               />
 
+              {/* 経験カード確認: AIの案は必ずDRAFTで、本人が確認して初めて正式根拠になる */}
+              {!completed && (
+                <ExperienceDraftPanel
+                  experienceReady={experienceReady}
+                  confirmedExperienceCount={session.progress.confirmedExperienceCount}
+                  draftExperience={draftExperience}
+                  creatingDraft={creatingDraft}
+                  savingDraft={savingDraft}
+                  notice={draftNotice}
+                  hasUserMessage={session.progress.userMessageCount > 0}
+                  onCreateDraft={(experienceType) => void createDraft(experienceType)}
+                  onSaveDraft={(body) => void saveDraft(body)}
+                  onDismissDraft={dismissDraft}
+                />
+              )}
+
               {/* completionIntent=SUGGESTED、またはcanGenerateResult=trueのときだけ表示する終了案内 */}
               <CompletionBanner
                 completionIntent={completionIntent}
@@ -137,10 +205,27 @@ export default function AnalysisChatPage() {
                 onGenerateResult={() => void generateResult()}
                 generatingResult={generatingResult}
                 sessionStatus={session.status}
-                assessments={assessments}
-                onFinalizeSession={finalizeSession}
-                finalizingSession={finalizingSession}
+                confirmedExperienceCount={session.progress.confirmedExperienceCount}
+                missingAxes={missingAxes}
               />
+
+              {/* 生成済みの4軸結果と本人評価。4軸すべて評価するまで確定できない */}
+              {assessments.length > 0 && (
+                <AxisAssessmentReview
+                  assessments={assessments}
+                  reviewingAxisId={reviewingAxisId}
+                  onReview={(id, assessment) => void reviewAssessment(id, assessment)}
+                  unreviewedCount={unreviewedAxes.length}
+                  hasStaleAssessment={hasStaleAssessment}
+                  canFinalize={canFinalize}
+                  onFinalize={() => void finalizeSession()}
+                  finalizing={finalizingSession}
+                  onRegenerate={() => void generateResult()}
+                  regenerating={generatingResult}
+                  completed={completed}
+                  recomputeFailed={recomputeFailed}
+                />
+              )}
 
               {loadingMessages ? (
                 <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
@@ -150,17 +235,19 @@ export default function AnalysisChatPage() {
                 <MessageList messages={messages} />
               )}
 
-              <MessageComposer
-                value={draftContent}
-                onChange={setDraftContent}
-                onSubmit={handleSendMessage}
-                disabled={sending}
-                fieldError={error?.fieldErrors.content}
-              />
+              {/* 確定後のセッションへは追記できない */}
+              {!completed && (
+                <MessageComposer
+                  value={draftContent}
+                  onChange={setDraftContent}
+                  onSubmit={handleSendMessage}
+                  disabled={sending}
+                  fieldError={error?.fieldErrors.content}
+                />
+              )}
             </>
           )}
-        </Stack>
-      </Box>
-    </Box>
+      </Stack>
+    </ChatBackground>
   );
 }

@@ -8,6 +8,12 @@ import Paper from "@mui/material/Paper";
 import SvgIcon from "@mui/material/SvgIcon";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 
+import {
+  ANALYSIS_CHAT_PATH,
+  ES_REVISION_PATH,
+  EXPERIENCES_PATH,
+  HOME_PATH,
+} from "@/shared/routes";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 
 function HomeIcon(props: SvgIconProps) {
@@ -34,10 +40,19 @@ function ReviewIcon(props: SvgIconProps) {
   );
 }
 
+function CardsIcon(props: SvgIconProps) {
+  return (
+    <SvgIcon {...props}>
+      <path d="M4 6h13v13H4zM7 3h13v13" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinejoin="round" />
+    </SvgIcon>
+  );
+}
+
 const NAV_ITEMS = [
-  { label: "Home", href: "/", icon: HomeIcon },
-  { label: "Chat", href: "/analysis-chat", icon: ChatIcon },
-  { label: "Review", href: "/es-revision", icon: ReviewIcon },
+  { label: "Home", href: HOME_PATH, icon: HomeIcon },
+  { label: "Chat", href: ANALYSIS_CHAT_PATH, icon: ChatIcon },
+  { label: "Cards", href: EXPERIENCES_PATH, icon: CardsIcon },
+  { label: "Review", href: ES_REVISION_PATH, icon: ReviewIcon },
 ] as const;
 
 // アプリ共通の下部ナビゲーション。layout.tsxからだけ呼び出し、

@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  confirmExperience,
   createAnalysisSession,
   createExperienceDraft,
   finalizeAnalysisSession,
   generateAxisAssessments,
   getCurrentAnalysisSession,
   listAnalysisMessages,
-  listAxisAssessments,
   recomputeOverallSelfAnalysis,
-  reviewAxisAssessment,
   sendAnalysisMessage,
 } from "@/lib/api/analysis-sessions";
+import { listAxisAssessments, reviewAxisAssessment } from "@/lib/api/axis-assessments";
 import { ApiError } from "@/lib/api/errors";
+import { updateExperience } from "@/lib/api/experiences";
 import type {
   AnalysisSession,
   ChatMessage,
@@ -21,10 +20,19 @@ import type {
   EvidenceCandidate,
   SelfAnalysisAxis,
 } from "@/types/analysis-session";
+import type { AxisAssessment, UserAssessment } from "@/types/axis-assessment";
+import type { ErrorCode } from "@/types/error";
+import type {
+  ExperienceResponse,
+  ExperienceType,
+  UpdateExperienceRequest,
+} from "@/types/experience";
 
 // 画面表示用に整形したエラー情報。retryableはバナーの文言分岐、
-// fieldErrorsは422のdetails[].fieldをフォームの該当項目へ紐付けるために使う
+// fieldErrorsは422のdetails[].fieldをフォームの該当項目へ紐付けるために使う。
+// codeはAI_UNAVAILABLE時に起動確認画面への導線を出すなど、コード別の追加案内に使う
 export interface ChatFormError {
+  code: ErrorCode;
   message: string;
   retryable: boolean;
   fieldErrors: Record<string, string>;
@@ -51,9 +59,20 @@ interface UseAnalysisChatState {
   loadingMessages: boolean;
   sending: boolean;
   generatingResult: boolean;
-  assessments: any[];
+  assessments: AxisAssessment[];
   loadingAssessments: boolean;
+  // PATCH /axis-assessments/{id} 実行中の軸ID。連打とボタンの二重操作を防ぐ
+  reviewingAxisId: string | null;
   finalizingSession: boolean;
+  // 確認待ちの経験カード案。nullなら確認フォームを表示しない
+  draftExperience: ExperienceResponse | null;
+  creatingDraft: boolean;
+  savingDraft: boolean;
+  // 経験カードの保存結果を伝える短い文言（「確認済みにしました」など）
+  draftNotice: string | null;
+  // finalize自体は成功したが総合プロフィールの再集計に失敗した場合に立てる。
+  // docs/implementation-rules.md のとおりレポートは戻さず、ホームから再集計させる
+  recomputeFailed: boolean;
   error: ChatFormError | null;
 }
 
@@ -73,7 +92,13 @@ const initialState: UseAnalysisChatState = {
   generatingResult: false,
   assessments: [],
   loadingAssessments: false,
+  reviewingAxisId: null,
   finalizingSession: false,
+  draftExperience: null,
+  creatingDraft: false,
+  savingDraft: false,
+  draftNotice: null,
+  recomputeFailed: false,
   error: null,
 };
 
@@ -94,18 +119,21 @@ function toFormError(err: unknown): ChatFormError {
   if (!(err instanceof ApiError)) {
     // fetch自体が失敗した場合などApiErrorに正規化できなかったケース
     return {
+      code: "INTERNAL_ERROR",
       message: "通信に失敗しました。ネットワーク状況を確認してください。",
       retryable: true,
       fieldErrors: {},
     };
   }
 
+  const code = err.response.code;
   const fieldErrors = toFieldErrors(err.response.details);
 
-  switch (err.response.code) {
+  switch (code) {
     case "AI_UNAVAILABLE":
       // 503: LM Studio未起動・モデル未ロード
       return {
+        code,
         message:
           "LM Studioが起動していません。Local Serverとモデルの読み込み状態を確認してください。",
         retryable: true,
@@ -114,6 +142,7 @@ function toFormError(err: unknown): ChatFormError {
     case "AI_TIMEOUT":
       // 504: 入力内容は破棄しない（呼び出し元で入力欄をクリアしない）。自動リトライはしない
       return {
+        code,
         message:
           "AIの応答が時間内に返りませんでした。入力内容はそのまま残っています。もう一度送信してください。",
         retryable: true,
@@ -123,14 +152,16 @@ function toFormError(err: unknown): ChatFormError {
       // 502(新規追加): AI出力が契約スキーマ/ドメイン規則に適合せず採用できなかった。
       // 出力は保存されないため、AI_TIMEOUTと同様に入力内容を保持したまま再試行させる
       return {
+        code,
         message:
           "AIの出力を正しく解釈できませんでした。入力内容はそのまま残っています。もう一度送信してください。",
         retryable: true,
         fieldErrors,
       };
     case "CONFLICT":
-      // 409: 既存の進行中セッションや状態不一致（例: START_NEW送信時に既に進行中セッションがある）
+      // 409: 既存の進行中セッションや状態不一致（例: 未評価の軸が残ったままのfinalize）
       return {
+        code,
         message:
           err.response.message || "現在の状態では処理できません。画面を再読み込みしてください。",
         retryable: false,
@@ -139,12 +170,14 @@ function toFormError(err: unknown): ChatFormError {
     case "VALIDATION_ERROR":
       // 422: fieldErrorsを各フォーム項目に表示するのでバナー文言はサーバーのmessage優先
       return {
+        code,
         message: err.response.message || "入力内容を確認してください。",
         retryable: false,
         fieldErrors,
       };
     default:
       return {
+        code,
         message: err.response.message || "処理に失敗しました。",
         retryable: err.response.retryable,
         fieldErrors,
@@ -152,7 +185,11 @@ function toFormError(err: unknown): ChatFormError {
   }
 }
 
-export function useAnalysisChat() {
+// ホームの「続きから」「初めから」から遷移してきた場合に、開始選択を省略して
+// そのモードで始めるための指定（docs/screen-api-map.md「2. ホーム表示状態」）
+export type InitialStartMode = "resume" | "new";
+
+export function useAnalysisChat(initialStartMode?: InitialStartMode) {
   const [state, setState] = useState<UseAnalysisChatState>(initialState);
 
   // 画面表示時に一度だけ進行中セッションの有無を確認する。
@@ -162,19 +199,52 @@ export function useAnalysisChat() {
     (async () => {
       try {
         const { session } = await getCurrentAnalysisSession();
-        if (!cancelled) {
-          setState((prev) => ({ ...prev, currentSession: session, checkingCurrent: false }));
+        if (cancelled) return;
+
+        // 「初めから」で来た場合は選択画面を飛ばして新規作成フォームを出す。
+        // 進行中セッションのABANDONED化はフォーム送信時なので、ここでは破棄しない
+        if (initialStartMode === "new") {
+          setState((prev) => ({
+            ...prev,
+            currentSession: session,
+            checkingCurrent: false,
+            showNewSessionForm: true,
+          }));
+          return;
         }
+
+        // 「続きから」で来た場合は、そのまま会話履歴の読み込みまで進める
+        if (initialStartMode === "resume" && session) {
+          setState((prev) => ({
+            ...prev,
+            currentSession: session,
+            checkingCurrent: false,
+            session,
+            loadingMessages: true,
+          }));
+          const page = await listAnalysisMessages(session.id);
+          if (!cancelled) {
+            setState((prev) => ({ ...prev, messages: page.items, loadingMessages: false }));
+          }
+          return;
+        }
+
+        setState((prev) => ({ ...prev, currentSession: session, checkingCurrent: false }));
       } catch (err) {
         if (!cancelled) {
-          setState((prev) => ({ ...prev, checkingCurrent: false, error: toFormError(err) }));
+          setState((prev) => ({
+            ...prev,
+            checkingCurrent: false,
+            loadingMessages: false,
+            error: toFormError(err),
+          }));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialStartMode]);
 
   // 「続きから」: 新規にPOSTはせず、/current で取得済みのセッションをそのまま使って会話履歴を読み込む
   const resumeCurrentSession = useCallback(async () => {
@@ -274,116 +344,165 @@ export function useAnalysisChat() {
     [state.session],
   );
 
+  // 経験カード案を作る。AIの抽出結果は必ずDRAFTで返るため、
+  // ここでは確定させず確認フォーム（ExperienceCardForm）へ渡す
+  const createDraft = useCallback(
+    async (experienceType: ExperienceType): Promise<boolean> => {
+      const session = state.session;
+      if (!session) return false;
+
+      const userMessageIds = state.messages
+        .filter((message) => message.role === "USER")
+        .map((message) => message.id);
+      if (userMessageIds.length === 0) return false;
+
+      setState((prev) => ({ ...prev, creatingDraft: true, draftNotice: null, error: null }));
+      try {
+        const draft = await createExperienceDraft(session.id, experienceType, userMessageIds);
+        setState((prev) => ({ ...prev, creatingDraft: false, draftExperience: draft }));
+        return true;
+      } catch (err) {
+        setState((prev) => ({ ...prev, creatingDraft: false, error: toFormError(err) }));
+        return false;
+      }
+    },
+    [state.session, state.messages],
+  );
+
+  // 確認フォームからの保存。status=CONFIRMEDのときだけ正式根拠になるので、
+  // 確認済みになった場合だけ進捗の確認済み経験数を増やす
+  const saveDraft = useCallback(
+    async (body: UpdateExperienceRequest): Promise<boolean> => {
+      const draft = state.draftExperience;
+      if (!draft) return false;
+
+      setState((prev) => ({ ...prev, savingDraft: true, error: null }));
+      try {
+        const { experience } = await updateExperience(draft.id, body);
+        const confirmed = experience.status === "CONFIRMED";
+        setState((prev) => ({
+          ...prev,
+          savingDraft: false,
+          draftExperience: confirmed ? null : experience,
+          draftNotice: confirmed
+            ? "経験カードを確認済みにしました。"
+            : "下書きとして保存しました。経験一覧からいつでも確認できます。",
+          session:
+            confirmed && prev.session
+              ? {
+                  ...prev.session,
+                  progress: {
+                    ...prev.session.progress,
+                    confirmedExperienceCount: prev.session.progress.confirmedExperienceCount + 1,
+                  },
+                }
+              : prev.session,
+        }));
+        return true;
+      } catch (err) {
+        setState((prev) => ({ ...prev, savingDraft: false, error: toFormError(err) }));
+        return false;
+      }
+    },
+    [state.draftExperience],
+  );
+
+  // 確認フォームを閉じる。カード自体はDRAFTとして残るので経験一覧から再開できる
+  const dismissDraft = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      draftExperience: null,
+      draftNotice: "下書きのまま保留しました。経験一覧から続きを編集できます。",
+    }));
+  }, []);
+
   // 軸分析一覧を取得する
   const fetchAssessments = useCallback(async (sessionId: string) => {
     setState((prev) => ({ ...prev, loadingAssessments: true }));
     try {
-      const res = await listAxisAssessments(sessionId);
-      setState((prev) => ({ ...prev, assessments: res.items, loadingAssessments: false }));
+      const { items } = await listAxisAssessments({ sessionId });
+      setState((prev) => ({ ...prev, assessments: items, loadingAssessments: false }));
     } catch {
       setState((prev) => ({ ...prev, loadingAssessments: false }));
     }
   }, []);
 
-  // 「この内容で結果を見る」を押した際の結果生成
+  // 「この内容で結果を見る」を押した際の結果生成。
+  // 確認済み経験が0件でもUSER回答1件以上あれば生成できる（根拠のない軸はINSUFFICIENT_EVIDENCEになる）
   const generateResult = useCallback(async (): Promise<boolean> => {
     const session = state.session;
     if (!session) return false;
 
     setState((prev) => ({ ...prev, generatingResult: true, error: null }));
     try {
-      // 確認済み体験カードが0件の場合、これまでの会話メッセージから体験カード案を作成して確定(CONFIRMED)にする
-      if (session.progress.confirmedExperienceCount === 0 && state.messages.length > 0) {
-        const userMsgIds = state.messages.filter((m) => m.role === "USER").map((m) => m.id);
-        if (userMsgIds.length > 0) {
-          try {
-            // 体験カード案を作成
-            const draft = await createExperienceDraft(session.id, "ENGAGED", userMsgIds);
-            // 本人確認済み(CONFIRMED)にする
-            if (draft?.id) {
-              await confirmExperience(draft.id);
-            }
-          } catch (e) {
-            // 体験カード自動抽出で例外が発生しても軸分析処理は続行
-            console.warn("Auto experience extraction warning:", e);
-          }
-        }
-      }
-
-      const res = await generateAxisAssessments(session.id);
+      const { items } = await generateAxisAssessments(session.id);
       setState((prev) => {
         if (!prev.session) return prev;
         return {
           ...prev,
           generatingResult: false,
-          assessments: res.items ?? [],
-          session: {
-            ...prev.session,
-            status: "READY_TO_FINALIZE",
-            progress: {
-              ...prev.session.progress,
-              confirmedExperienceCount: Math.max(1, prev.session.progress.confirmedExperienceCount),
-            },
-          },
+          assessments: items,
+          session: { ...prev.session, status: "READY_TO_FINALIZE" },
         };
       });
-      // 生成された軸評価一覧を取得
-      void fetchAssessments(session.id);
       return true;
     } catch (err) {
       setState((prev) => ({ ...prev, generatingResult: false, error: toFormError(err) }));
       return false;
     }
-  }, [state.session, state.messages, fetchAssessments]);
+  }, [state.session]);
 
-  // セッションを復元・初期読み込みした際にすでにREADY_TO_FINALIZEなら軸データ取得
+  // セッションを復元・初期読み込みした際にすでに生成済みなら軸データを取得する
   useEffect(() => {
-    if (state.session?.id && (state.session.status === "READY_TO_FINALIZE" || state.session.status === "COMPLETED")) {
+    if (
+      state.session?.id &&
+      (state.session.status === "READY_TO_FINALIZE" || state.session.status === "COMPLETED")
+    ) {
       void fetchAssessments(state.session.id);
     }
   }, [state.session?.id, state.session?.status, fetchAssessments]);
 
-  // 各軸に対するユーザーのレビュー（MATCHES等）
+  // 各軸への本人評価。本人が選んだ値だけを保存し、未評価のまま自動で埋めない
+  // （docs/product-scope.md「未評価の軸をAIの確定所見として保存しない」）
   const reviewAssessment = useCallback(
-    async (
-      id: string,
-      assessment: "MATCHES" | "PARTIALLY_MATCHES" | "DOES_NOT_MATCH" | "NEEDS_EXPLORATION",
-    ) => {
+    async (axisAssessmentId: string, assessment: UserAssessment): Promise<boolean> => {
+      setState((prev) => ({ ...prev, reviewingAxisId: axisAssessmentId, error: null }));
       try {
-        await reviewAxisAssessment(id, assessment);
-        if (state.session?.id) {
-          void fetchAssessments(state.session.id);
-        }
+        const updated = await reviewAxisAssessment(axisAssessmentId, { assessment });
+        setState((prev) => ({
+          ...prev,
+          reviewingAxisId: null,
+          assessments: prev.assessments.map((item) => (item.id === updated.id ? updated : item)),
+        }));
+        return true;
       } catch (err) {
-        setState((prev) => ({ ...prev, error: toFormError(err) }));
+        setState((prev) => ({ ...prev, reviewingAxisId: null, error: toFormError(err) }));
+        return false;
       }
     },
-    [state.session?.id, fetchAssessments],
+    [],
   );
 
-  // セッションを確定し、総合結果を計算してホームへ移動できるようにする
+  // セッションを確定し、ホームの総合傾向へ反映する。
+  // 4軸すべての本人評価が終わっていない場合、サーバーは409を返す
   const finalizeSession = useCallback(async (): Promise<boolean> => {
     const session = state.session;
     if (!session) return false;
 
-    setState((prev) => ({ ...prev, finalizingSession: true, error: null }));
+    setState((prev) => ({ ...prev, finalizingSession: true, recomputeFailed: false, error: null }));
     try {
-      // 軸のレビューが未実施の項目があれば、自動的に全軸 MATCHES で一括レビュー
-      if (state.assessments && state.assessments.length > 0) {
-        for (const item of state.assessments) {
-          if (item.userAssessment === "UNREVIEWED") {
-            await reviewAxisAssessment(item.id, "MATCHES");
-          }
-        }
-      }
-
       await finalizeAnalysisSession(session.id);
-      // ホーム画面の表示用の総合自己分析を再計算
-      await recomputeOverallSelfAnalysis().catch(() => null);
+      // 再計算はfinalizeとは別処理。失敗しても確定済みレポートは戻さず、
+      // ホーム側に STALE として再集計ボタンを出させる
+      const recomputed = await recomputeOverallSelfAnalysis().then(
+        () => true,
+        () => false,
+      );
 
       setState((prev) => ({
         ...prev,
         finalizingSession: false,
+        recomputeFailed: !recomputed,
         session: prev.session ? { ...prev.session, status: "COMPLETED" } : null,
       }));
       return true;
@@ -391,14 +510,26 @@ export function useAnalysisChat() {
       setState((prev) => ({ ...prev, finalizingSession: false, error: toFormError(err) }));
       return false;
     }
-  }, [state.session, state.assessments]);
+  }, [state.session]);
+
+  // 本人評価がまだの軸。1つでも残っているあいだはfinalizeできない
+  const unreviewedAxes = state.assessments.filter((item) => item.userAssessment === "UNREVIEWED");
+  // 評価後に会話を続けた軸。再生成しないとfinalizeできない
+  const hasStaleAssessment = state.assessments.some((item) => item.isStale);
 
   return {
     ...state,
+    unreviewedAxes,
+    hasStaleAssessment,
+    canFinalize:
+      state.assessments.length > 0 && unreviewedAxes.length === 0 && !hasStaleAssessment,
     resumeCurrentSession,
     chooseStartNew,
     startSession,
     sendMessage,
+    createDraft,
+    saveDraft,
+    dismissDraft,
     generateResult,
     fetchAssessments,
     reviewAssessment,

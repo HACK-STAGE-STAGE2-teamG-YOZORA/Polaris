@@ -77,3 +77,8 @@ export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
+
+// 204 No Contentを返すエンドポイント用。requestが204をundefinedへ畳むのでvoidで受ける
+export function apiDelete(path: string): Promise<void> {
+  return request<void>(path, { method: "DELETE" });
+}
