@@ -85,7 +85,7 @@ export default function HomePage() {
         minHeight: "100dvh",
         pb: "72px",
         color: CHAT_COLORS.textOnDark,
-        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, #061C2B 46%, #075685 100%)`,
+        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
       }}
     >
       <Box sx={{ width: "100%", maxWidth: 560, mx: "auto", px: 2, pt: 3 }}>
