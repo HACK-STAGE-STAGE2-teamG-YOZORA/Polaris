@@ -202,7 +202,14 @@ export function useAnalysisChat(initialAction?: InitialStartAction) {
   const [state, setState] = useState<UseAnalysisChatState>(initialState);
 
   const loadMessagesInto = useCallback(async (session: AnalysisSession) => {
-    setState((prev) => ({ ...prev, session, loadingMessages: true, showNewSessionForm: false }));
+    setState((prev) => ({
+      ...prev,
+      session,
+      messages: [],
+      assessments: [],
+      loadingMessages: true,
+      showNewSessionForm: false,
+    }));
     try {
       const page = await listAnalysisMessages(session.id);
       setState((prev) => ({ ...prev, messages: page.items, loadingMessages: false }));
@@ -329,6 +336,8 @@ export function useAnalysisChat(initialAction?: InitialStartAction) {
         const turn = await sendAnalysisMessage(session.id, { content, clientMessageId });
         setState((prev) => {
           if (!prev.session) return prev;
+          const invalidatesGeneratedResult =
+            prev.session.status === "READY_TO_FINALIZE" || prev.session.status === "COMPLETED";
           // docs/openapi.yaml AnalysisProgress.canGenerateResult の定義
           // 「USERメッセージが1件以上ならtrue」は決定的ルールなので、
           // セッション全体を再取得しなくてもここでローカルに先取り更新できる
@@ -341,10 +350,15 @@ export function useAnalysisChat(initialAction?: InitialStartAction) {
             evidenceCandidates: turn.evidenceCandidates,
             experienceReady: turn.experienceReady,
             missingAxes: turn.missingAxes,
+            // 生成済み・確定済みの結果は、新しい回答を送るとサーバー側でも古い状態になる。
+            // 画面にも前回結果を残さず、改めて自己分析を実行できる状態へ戻す。
+            assessments: invalidatesGeneratedResult ? [] : prev.assessments,
             // SUGGESTEDでもここではセッション状態を変更しない。画面側で案内を出すだけ
             completionIntent: turn.completionIntent,
             session: {
               ...prev.session,
+              status: invalidatesGeneratedResult ? "ACTIVE" : prev.session.status,
+              completedAt: prev.session.status === "COMPLETED" ? undefined : prev.session.completedAt,
               progress: {
                 ...prev.session.progress,
                 userMessageCount: nextUserMessageCount,
@@ -441,13 +455,22 @@ export function useAnalysisChat(initialAction?: InitialStartAction) {
     setState((prev) => ({ ...prev, loadingAssessments: true }));
     try {
       const { items } = await listAxisAssessments({ sessionId });
-      setState((prev) => ({ ...prev, assessments: items, loadingAssessments: false }));
+      setState((prev) => {
+        const stillShowsGeneratedResult =
+          prev.session?.id === sessionId &&
+          (prev.session.status === "READY_TO_FINALIZE" || prev.session.status === "COMPLETED");
+        return {
+          ...prev,
+          assessments: stillShowsGeneratedResult ? items : prev.assessments,
+          loadingAssessments: false,
+        };
+      });
     } catch {
       setState((prev) => ({ ...prev, loadingAssessments: false }));
     }
   }, []);
 
-  // 「この内容で結果を見る」を押した際の結果生成。
+  // 「自己分析を行う」を押した際の結果生成。
   // 確認済み経験が0件でもUSER回答1件以上あれば生成できる（根拠のない軸はINSUFFICIENT_EVIDENCEになる）
   const generateResult = useCallback(async (): Promise<boolean> => {
     const session = state.session;

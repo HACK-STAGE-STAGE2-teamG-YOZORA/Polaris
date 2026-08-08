@@ -63,7 +63,7 @@ export function CompletionBanner({
       {!isGenerated && (
         <Stack spacing={0.5}>
           <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
-            「この内容で結果を見る」を押すと、これまでの会話から4軸の傾向を作ります。会話を続けることもできます。
+            「自己分析を行う」を押すと、これまでの会話から4軸の傾向を作ります。会話を続けることもできます。
           </Typography>
           <Typography variant="caption" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
             確認済みの経験カード: {confirmedExperienceCount}件
@@ -94,7 +94,7 @@ export function CompletionBanner({
               "&.Mui-disabled": { bgcolor: CHAT_COLORS.orangeMuted, color: CHAT_COLORS.textOnDarkMuted },
             }}
           >
-            {generatingResult ? "分析結果を生成中..." : "この内容で結果を見る"}
+            {generatingResult ? "分析結果を生成中..." : "自己分析を行う"}
           </Button>
         </Box>
       )}
