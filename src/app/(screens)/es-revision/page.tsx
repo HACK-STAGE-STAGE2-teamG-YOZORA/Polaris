@@ -44,7 +44,7 @@ export default function EsRevisionPage() {
     <Box
       sx={{
         minHeight: "100dvh",
-        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientBottom} 100%)`,
+        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
         display: "flex",
         justifyContent: "center",
         pb: "72px",
