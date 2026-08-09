@@ -1033,6 +1033,36 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/es-revision-context:
+    get:
+      tags: [ES]
+      operationId: getEsRevisionContext
+      summary: ES添削画面の初期表示に必要な一覧をまとめて取得する
+      description: |
+        企業一覧・確認済み経験一覧・ES文書一覧と、`documentId`指定時はその文書詳細を1回の認証確認で返す。
+        個別APIを複数回呼ぶ場合と同じ内容を返す集約APIで、既存の個別エンドポイントは引き続き利用できる。
+        `documentId`に他ユーザーの文書や存在しないIDを指定した場合は`404 NOT_FOUND`を返す。
+      parameters:
+        - name: documentId
+          in: query
+          description: 指定時は該当ES文書の検査・推敲履歴を含めて返す。
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: ES添削画面の初期表示データ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EsRevisionContext'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/es-documents:
     get:
       tags: [ES]
@@ -3127,6 +3157,36 @@ components:
           items:
             type: string
             maxLength: 500
+
+    EsRevisionContext:
+      type: object
+      description: ES添削画面の初期表示データ。個別APIと同じ内容をまとめて返す。
+      required: [companies, experiences, documents, selectedDocument]
+      properties:
+        companies:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CompanySummary'
+        experiences:
+          description: 根拠候補として使う確認済み経験だけを返す。
+          $ref: '#/components/schemas/ExperiencePage'
+        documents:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/EsDocumentSummary'
+        selectedDocument:
+          description: '`documentId`未指定の場合は`null`。'
+          anyOf:
+            - $ref: '#/components/schemas/EsDocument'
+            - type: 'null'
 
     EsDocumentSummary:
       type: object

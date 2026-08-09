@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { recomputeOverallSelfAnalysis } from "@/lib/api/analysis-sessions";
+import { CACHE_KEYS, readCache, writeCache } from "@/lib/api/cache";
 import { apiGet } from "@/lib/api/client";
 import { toDisplayError } from "@/lib/api/error-messages";
 import type { DisplayError } from "@/lib/api/error-messages";
@@ -31,12 +32,19 @@ export function useDashboard() {
   useEffect(() => {
     let cancelled = false;
 
+    // タブを戻ってきた場合は取得済みデータで即描画し、そのうえで背面から取り直す
+    const cached = readCache<DashboardResponse>(CACHE_KEYS.dashboard);
+    if (cached) setState((prev) => ({ ...prev, dashboard: cached, loading: false }));
+
     void apiGet<DashboardResponse>("/dashboard")
       .then((dashboard) => {
-        if (!cancelled) setState((prev) => ({ ...prev, dashboard, loading: false }));
+        if (cancelled) return;
+        writeCache(CACHE_KEYS.dashboard, dashboard);
+        setState((prev) => ({ ...prev, dashboard, loading: false }));
       })
       .catch((err: unknown) => {
         if (!cancelled) {
+          // キャッシュを表示できている場合は内容を残し、再取得の失敗だけを知らせる
           setState((prev) => ({
             ...prev,
             loading: false,

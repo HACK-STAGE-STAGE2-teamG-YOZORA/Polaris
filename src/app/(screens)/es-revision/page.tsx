@@ -121,11 +121,11 @@ function EsRevisionContent() {
       <Stack spacing={2}>
         {error && <EsErrorBanner error={error} />}
 
-        {(accessStatus === "CHECKING" || accessStatus === "LOADING_CONTEXT") && (
+        {accessStatus === "LOADING_CONTEXT" && (
           <Stack spacing={1.5} sx={{ alignItems: "center", py: 6 }}>
             <CircularProgress sx={{ color: CHAT_COLORS.orange }} />
             <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
-              {accessStatus === "CHECKING" ? "ログイン状態を確認しています…" : "ES・企業・経験を読み込んでいます…"}
+              ES・企業・経験を読み込んでいます…
             </Typography>
           </Stack>
         )}

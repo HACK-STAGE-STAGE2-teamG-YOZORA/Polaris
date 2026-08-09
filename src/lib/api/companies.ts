@@ -1,3 +1,4 @@
+import { invalidateCompanyCaches } from "@/lib/api/cache";
 import { apiGet, apiPost } from "@/lib/api/client";
 import type {
   Company,
@@ -15,13 +16,17 @@ export function getCompany(companyId: string): Promise<Company> {
   return apiGet<Company>(`/companies/${companyId}`);
 }
 
-export function createCompany(request: CreateCompanyRequest): Promise<Company> {
-  return apiPost<Company>("/companies", request);
+export async function createCompany(request: CreateCompanyRequest): Promise<Company> {
+  const company = await apiPost<Company>("/companies", request);
+  invalidateCompanyCaches();
+  return company;
 }
 
-export function importCompanyText(
+export async function importCompanyText(
   companyId: string,
   request: ImportCompanyTextRequest,
 ): Promise<CompanyImportResult> {
-  return apiPost<CompanyImportResult>(`/companies/${companyId}/sources/text`, request);
+  const result = await apiPost<CompanyImportResult>(`/companies/${companyId}/sources/text`, request);
+  invalidateCompanyCaches();
+  return result;
 }

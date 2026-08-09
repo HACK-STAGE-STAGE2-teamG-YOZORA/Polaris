@@ -191,6 +191,57 @@ await withE2eServer(async ({ request, schemaName }) => {
   expectStatus(await request('/api/v1/es-documents'), 200, 'list ES documents');
   expectStatus(await request('/api/v1/dashboard'), 200, 'populated dashboard');
 
+  // ES添削画面の集約API。個別APIと同じ内容を認証確認1回で返す
+  const contextAuthRequired = expectStatus(
+    await request('/api/v1/es-revision-context', { authenticated: false }),
+    401,
+    'es revision context requires auth',
+  );
+  assert(contextAuthRequired.code === 'AUTH_REQUIRED', '集約APIの未認証エラーコードが不正です。');
+  const esContext = expectStatus(await request('/api/v1/es-revision-context'), 200, 'es revision context');
+  const contextCompanies = object(esContext.companies, 'context companies').items as JsonObject[];
+  const contextExperiences = object(esContext.experiences, 'context experiences').items as JsonObject[];
+  const contextDocuments = object(esContext.documents, 'context documents').items as JsonObject[];
+  assert(contextCompanies.some((item) => String(item.id) === companyId), '集約APIの企業一覧に自分の企業がありません。');
+  assert(contextExperiences.some((item) => String(item.id) === experienceId), '集約APIの経験一覧に確認済み経験がありません。');
+  assert(contextExperiences.every((item) => item.status === 'CONFIRMED'), '集約APIの経験一覧に確認済み以外が含まれています。');
+  assert(contextDocuments.some((item) => String(item.id) === documentId), '集約APIのES一覧に自分のES文書がありません。');
+  assert(esContext.selectedDocument === null, 'documentId未指定でselectedDocumentがnullではありません。');
+  const selectedContext = expectStatus(
+    await request(`/api/v1/es-revision-context?documentId=${documentId}`),
+    200,
+    'es revision context with document',
+  );
+  assert(
+    object(selectedContext.selectedDocument, 'selectedDocument').id === documentId,
+    'documentId指定時のselectedDocumentが不正です。',
+  );
+  // 別ユーザーが所有するES文書は404にする（ADR-052）
+  expectStatus(
+    await request(`/api/v1/es-revision-context?documentId=${documentId}`, { headers: authHeaders }),
+    404,
+    'cross-user es revision context document',
+  );
+  // 集約APIでもすべてのクエリを認証ユーザーで絞る（docs/implementation-rules.md）
+  const otherContext = expectStatus(
+    await request('/api/v1/es-revision-context', { headers: authHeaders }),
+    200,
+    'other user es revision context',
+  );
+  assert(
+    (object(otherContext.documents, 'other context documents').items as JsonObject[]).length === 0,
+    '別ユーザーの集約APIへES文書が漏れています。',
+  );
+  assert(
+    (object(otherContext.experiences, 'other context experiences').items as JsonObject[]).length === 0,
+    '別ユーザーの集約APIへ経験カードが漏れています。',
+  );
+  assert(
+    (object(otherContext.companies, 'other context companies').items as JsonObject[])
+      .every((item) => String(item.id) !== companyId),
+    '別ユーザーの集約APIへ企業が漏れています。',
+  );
+
   const formData = new FormData();
   formData.set('file', new File([textImage()], 'entry.png', { type: 'application/octet-stream' }));
   expectStatus(await request('/api/v1/es-text-extractions', { method: 'POST', formData }), 200, 'extract ES image');

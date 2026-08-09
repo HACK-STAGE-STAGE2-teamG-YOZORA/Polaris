@@ -1,4 +1,5 @@
 // docs/openapi.yaml の /api/v1/experiences 系エンドポイントに対応するAPIクライアント。
+import { invalidateExperienceCaches } from "@/lib/api/cache";
 import { apiDelete, apiGet, apiPatch } from "@/lib/api/client";
 import type {
   ExperiencePage,
@@ -33,14 +34,17 @@ export function getExperience(experienceId: string): Promise<ExperienceResponse>
 
 // PATCH /api/v1/experiences/{experienceId} — 内容の修正と確認(CONFIRMED)を行う。
 // レスポンスには、この更新で古くなった4軸分析(staledAssessments)が含まれる
-export function updateExperience(
+export async function updateExperience(
   experienceId: string,
   body: UpdateExperienceRequest,
 ): Promise<UpdateExperienceResponse> {
-  return apiPatch<UpdateExperienceResponse>(`/experiences/${experienceId}`, body);
+  const result = await apiPatch<UpdateExperienceResponse>(`/experiences/${experienceId}`, body);
+  invalidateExperienceCaches();
+  return result;
 }
 
 // DELETE /api/v1/experiences/{experienceId}
-export function deleteExperience(experienceId: string): Promise<void> {
-  return apiDelete(`/experiences/${experienceId}`);
+export async function deleteExperience(experienceId: string): Promise<void> {
+  await apiDelete(`/experiences/${experienceId}`);
+  invalidateExperienceCaches();
 }

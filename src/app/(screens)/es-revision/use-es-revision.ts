@@ -4,16 +4,15 @@ import {
   analyzeEsDocument,
   createEsDocument,
   getEsDocument,
-  listEsDocuments,
+  getEsRevisionContext,
   reviseEsDocument,
   reviewEsRevisionChange,
   updateEsDocument,
   verifyEsRevision,
 } from "@/lib/api/es-documents";
-import { getAuthSession } from "@/lib/api/auth";
+import { CACHE_KEYS, readCache, writeCache } from "@/lib/api/cache";
 import { listCompanies } from "@/lib/api/companies";
 import { ApiError } from "@/lib/api/errors";
-import { listConfirmedExperiences } from "@/lib/api/experiences";
 import type { CompanySummary } from "@/types/company";
 import type {
   CreateEsDocumentRequest,
@@ -21,6 +20,7 @@ import type {
   EsDocument,
   EsDocumentSummary,
   EsRevision,
+  EsRevisionContext,
   RevisionDecision,
 } from "@/types/es-document";
 import type { ExperienceResponse } from "@/types/experience";
@@ -37,7 +37,9 @@ export interface EsFormError {
 }
 
 export type EsRevisionStep = "HUB" | "INPUT" | "ANALYSIS" | "RESULT" | "COMMENTS";
-export type EsAccessStatus = "CHECKING" | "UNAUTHENTICATED" | "LOADING_CONTEXT" | "READY" | "ERROR";
+// 認証確認は集約APIの1回に含まれるため、読み込み中はLOADING_CONTEXTだけを使う。
+// 未ログインは集約APIの401（AUTH_REQUIRED）で判定する
+export type EsAccessStatus = "UNAUTHENTICATED" | "LOADING_CONTEXT" | "READY" | "ERROR";
 
 export type EsRevisionProgressStage =
   | "CREATING_DOCUMENT"
@@ -72,7 +74,7 @@ interface UseEsRevisionState {
 }
 
 const initialState: UseEsRevisionState = {
-  accessStatus: "CHECKING",
+  accessStatus: "LOADING_CONTEXT",
   companies: [],
   experiences: [],
   documents: [],
@@ -164,47 +166,67 @@ function requestFromDocument(document: EsDocument): CreateEsDocumentRequest {
 export function useEsRevision(options: UseEsRevisionOptions = {}) {
   const [state, setState] = useState<UseEsRevisionState>(initialState);
 
-  const loadScreenContext = useCallback(async (): Promise<void> => {
-    setState((prev) => ({ ...prev, accessStatus: "CHECKING", error: null }));
-    try {
-      const session = await getAuthSession();
-      if (!session.authenticated || !session.user) {
-        setState((prev) => ({ ...prev, accessStatus: "UNAUTHENTICATED", companies: [], experiences: [] }));
-        return;
-      }
+  // 集約APIの応答で画面全体を組み立てる。初回表示とキャッシュなしの再読み込みで使う
+  const applyContext = useCallback((context: EsRevisionContext): void => {
+    const selectedDocument = context.selectedDocument;
+    const restored = selectedDocument ? restoreEsWorkflow(selectedDocument) : null;
+    setState((prev) => ({
+      ...prev,
+      accessStatus: "READY",
+      companies: context.companies.items,
+      experiences: context.experiences.items,
+      documents: context.documents.items,
+      step: restored ? restored.step : options.startNew ? "INPUT" : "HUB",
+      esDocument: selectedDocument,
+      originalAnalysis: restored?.originalAnalysis ?? null,
+      esRevision: restored?.revision ?? null,
+      verifyAnalysis: restored?.verificationAnalysis ?? null,
+      requestFingerprint: selectedDocument
+        ? fingerprintEsRequest(requestFromDocument(selectedDocument))
+        : null,
+      error: null,
+    }));
+  }, [options.startNew]);
 
-      setState((prev) => ({ ...prev, accessStatus: "LOADING_CONTEXT" }));
-      const [companyPage, experiencePage, documentPage, selectedDocument] = await Promise.all([
-        listCompanies(),
-        listConfirmedExperiences(),
-        listEsDocuments(),
-        options.initialDocumentId ? getEsDocument(options.initialDocumentId) : Promise.resolve(null),
-      ]);
-      const restored = selectedDocument ? restoreEsWorkflow(selectedDocument) : null;
-      setState((prev) => ({
-        ...prev,
-        accessStatus: "READY",
-        companies: companyPage.items,
-        experiences: experiencePage.items,
-        documents: documentPage.items,
-        step: selectedDocument ? restored!.step : options.startNew ? "INPUT" : "HUB",
-        esDocument: selectedDocument,
-        originalAnalysis: restored?.originalAnalysis ?? null,
-        esRevision: restored?.revision ?? null,
-        verifyAnalysis: restored?.verificationAnalysis ?? null,
-        requestFingerprint: selectedDocument
-          ? fingerprintEsRequest(requestFromDocument(selectedDocument))
-          : null,
-        error: null,
-      }));
+  // 一覧だけを最新へ差し替える。キャッシュを表示したあとの背面での再取得で使い、
+  // ユーザーが進めている手順（step）や編集中の文書は巻き戻さない
+  const applyLists = useCallback((context: EsRevisionContext): void => {
+    setState((prev) => ({
+      ...prev,
+      accessStatus: "READY",
+      companies: context.companies.items,
+      experiences: context.experiences.items,
+      documents: context.documents.items,
+    }));
+  }, []);
+
+  const loadScreenContext = useCallback(async (): Promise<void> => {
+    const documentId = options.initialDocumentId ?? null;
+    const cacheKey = CACHE_KEYS.esRevisionContext(documentId);
+    const cached = readCache<EsRevisionContext>(cacheKey);
+    // タブを戻ってきた場合は取得済みデータで即描画し、そのうえで背面から取り直す
+    if (cached) applyContext(cached);
+    else setState((prev) => ({ ...prev, accessStatus: "LOADING_CONTEXT", error: null }));
+
+    try {
+      // 企業・確認済み経験・ES一覧・（指定時は）文書詳細を1回の認証確認でまとめて取得する
+      const context = await getEsRevisionContext(documentId);
+      writeCache(cacheKey, context);
+      if (cached) applyLists(context);
+      else applyContext(context);
     } catch (err) {
       if (err instanceof ApiError && err.response.code === "AUTH_REQUIRED") {
         setState((prev) => ({ ...prev, accessStatus: "UNAUTHENTICATED", companies: [], experiences: [] }));
         return;
       }
-      setState((prev) => ({ ...prev, accessStatus: "ERROR", error: toFormError(err) }));
+      // キャッシュを表示できている場合は内容を残し、再取得の失敗だけを知らせる
+      setState((prev) => ({
+        ...prev,
+        accessStatus: cached ? prev.accessStatus : "ERROR",
+        error: toFormError(err),
+      }));
     }
-  }, [options.initialDocumentId, options.startNew]);
+  }, [applyContext, applyLists, options.initialDocumentId]);
 
   useEffect(() => {
     void loadScreenContext();
@@ -265,8 +287,11 @@ export function useEsRevision(options: UseEsRevisionOptions = {}) {
       error: null,
     }));
     try {
-      const [documentPage, companyPage] = await Promise.all([listEsDocuments(), listCompanies()]);
-      setState((prev) => ({ ...prev, documents: documentPage.items, companies: companyPage.items }));
+      // ハブへ戻るときも集約APIを使い、認証確認とDBアクセスを1リクエストにまとめる
+      const cacheKey = CACHE_KEYS.esRevisionContext(null);
+      const context = await getEsRevisionContext(null);
+      writeCache(cacheKey, context);
+      applyLists(context);
     } catch (err) {
       setState((prev) => ({
         ...prev,
@@ -274,7 +299,7 @@ export function useEsRevision(options: UseEsRevisionOptions = {}) {
         error: toFormError(err),
       }));
     }
-  }, []);
+  }, [applyLists]);
 
   const editDocument = useCallback(() => {
     setState((prev) => ({ ...prev, step: "INPUT", error: null }));
