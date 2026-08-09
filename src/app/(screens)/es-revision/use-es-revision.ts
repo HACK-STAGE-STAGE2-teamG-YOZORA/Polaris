@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   analyzeEsDocument,
   createEsDocument,
+  getEsDocument,
+  listEsDocuments,
   reviseEsDocument,
   reviewEsRevisionChange,
   updateEsDocument,
@@ -17,6 +19,7 @@ import type {
   CreateEsDocumentRequest,
   EsAnalysis,
   EsDocument,
+  EsDocumentSummary,
   EsRevision,
   RevisionDecision,
 } from "@/types/es-document";
@@ -24,6 +27,7 @@ import type { ExperienceResponse } from "@/types/experience";
 import {
   determineRevisionWorkflowStage,
   fingerprintEsRequest,
+  restoreEsWorkflow,
 } from "./es-revision-logic";
 
 export interface EsFormError {
@@ -32,7 +36,7 @@ export interface EsFormError {
   fieldErrors: Record<string, string>;
 }
 
-export type EsRevisionStep = "INPUT" | "ANALYSIS" | "RESULT" | "COMMENTS";
+export type EsRevisionStep = "HUB" | "INPUT" | "ANALYSIS" | "RESULT" | "COMMENTS";
 export type EsAccessStatus = "CHECKING" | "UNAUTHENTICATED" | "LOADING_CONTEXT" | "READY" | "ERROR";
 
 export type EsRevisionProgressStage =
@@ -54,6 +58,7 @@ interface UseEsRevisionState {
   accessStatus: EsAccessStatus;
   companies: CompanySummary[];
   experiences: ExperienceResponse[];
+  documents: EsDocumentSummary[];
   step: EsRevisionStep;
   esDocument: EsDocument | null;
   originalAnalysis: EsAnalysis | null;
@@ -62,6 +67,7 @@ interface UseEsRevisionState {
   requestFingerprint: string | null;
   progressStage: EsRevisionProgressStage | null;
   reviewingChangeId: string | null;
+  loadingDocumentId: string | null;
   error: EsFormError | null;
 }
 
@@ -69,7 +75,8 @@ const initialState: UseEsRevisionState = {
   accessStatus: "CHECKING",
   companies: [],
   experiences: [],
-  step: "INPUT",
+  documents: [],
+  step: "HUB",
   esDocument: null,
   originalAnalysis: null,
   esRevision: null,
@@ -77,6 +84,7 @@ const initialState: UseEsRevisionState = {
   requestFingerprint: null,
   progressStage: null,
   reviewingChangeId: null,
+  loadingDocumentId: null,
   error: null,
 };
 
@@ -136,7 +144,24 @@ function isAuthRequiredError(err: unknown): boolean {
   return err instanceof ApiError && err.response.code === "AUTH_REQUIRED";
 }
 
-export function useEsRevision() {
+interface UseEsRevisionOptions {
+  initialDocumentId?: string | null;
+  startNew?: boolean;
+}
+
+function requestFromDocument(document: EsDocument): CreateEsDocumentRequest {
+  return {
+    companyId: document.companyId,
+    targetRole: document.targetRole,
+    question: document.question,
+    characterLimit: document.characterLimit,
+    originalText: document.originalText,
+    preferredExperienceIds: document.preferredExperienceIds,
+    emphasis: document.emphasis,
+  };
+}
+
+export function useEsRevision(options: UseEsRevisionOptions = {}) {
   const [state, setState] = useState<UseEsRevisionState>(initialState);
 
   const loadScreenContext = useCallback(async (): Promise<void> => {
@@ -149,15 +174,27 @@ export function useEsRevision() {
       }
 
       setState((prev) => ({ ...prev, accessStatus: "LOADING_CONTEXT" }));
-      const [companyPage, experiencePage] = await Promise.all([
+      const [companyPage, experiencePage, documentPage, selectedDocument] = await Promise.all([
         listCompanies(),
         listConfirmedExperiences(),
+        listEsDocuments(),
+        options.initialDocumentId ? getEsDocument(options.initialDocumentId) : Promise.resolve(null),
       ]);
+      const restored = selectedDocument ? restoreEsWorkflow(selectedDocument) : null;
       setState((prev) => ({
         ...prev,
         accessStatus: "READY",
         companies: companyPage.items,
         experiences: experiencePage.items,
+        documents: documentPage.items,
+        step: selectedDocument ? restored!.step : options.startNew ? "INPUT" : "HUB",
+        esDocument: selectedDocument,
+        originalAnalysis: restored?.originalAnalysis ?? null,
+        esRevision: restored?.revision ?? null,
+        verifyAnalysis: restored?.verificationAnalysis ?? null,
+        requestFingerprint: selectedDocument
+          ? fingerprintEsRequest(requestFromDocument(selectedDocument))
+          : null,
         error: null,
       }));
     } catch (err) {
@@ -167,11 +204,96 @@ export function useEsRevision() {
       }
       setState((prev) => ({ ...prev, accessStatus: "ERROR", error: toFormError(err) }));
     }
-  }, []);
+  }, [options.initialDocumentId, options.startNew]);
 
   useEffect(() => {
     void loadScreenContext();
   }, [loadScreenContext]);
+
+  const startNewDocument = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      step: "INPUT",
+      esDocument: null,
+      originalAnalysis: null,
+      esRevision: null,
+      verifyAnalysis: null,
+      requestFingerprint: null,
+      progressStage: null,
+      loadingDocumentId: null,
+      error: null,
+    }));
+  }, []);
+
+  const openDocument = useCallback(async (documentId: string): Promise<boolean> => {
+    setState((prev) => ({ ...prev, loadingDocumentId: documentId, error: null }));
+    try {
+      const document = await getEsDocument(documentId);
+      const restored = restoreEsWorkflow(document);
+      setState((prev) => ({
+        ...prev,
+        loadingDocumentId: null,
+        step: restored.step,
+        esDocument: document,
+        originalAnalysis: restored.originalAnalysis,
+        esRevision: restored.revision,
+        verifyAnalysis: restored.verificationAnalysis,
+        requestFingerprint: fingerprintEsRequest(requestFromDocument(document)),
+      }));
+      return true;
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        accessStatus: isAuthRequiredError(err) ? "UNAUTHENTICATED" : prev.accessStatus,
+        loadingDocumentId: null,
+        error: toFormError(err),
+      }));
+      return false;
+    }
+  }, []);
+
+  const backToHub = useCallback(async (): Promise<void> => {
+    setState((prev) => ({
+      ...prev,
+      step: "HUB",
+      esDocument: null,
+      originalAnalysis: null,
+      esRevision: null,
+      verifyAnalysis: null,
+      requestFingerprint: null,
+      progressStage: null,
+      error: null,
+    }));
+    try {
+      const [documentPage, companyPage] = await Promise.all([listEsDocuments(), listCompanies()]);
+      setState((prev) => ({ ...prev, documents: documentPage.items, companies: companyPage.items }));
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        accessStatus: isAuthRequiredError(err) ? "UNAUTHENTICATED" : prev.accessStatus,
+        error: toFormError(err),
+      }));
+    }
+  }, []);
+
+  const editDocument = useCallback(() => {
+    setState((prev) => ({ ...prev, step: "INPUT", error: null }));
+  }, []);
+
+  const refreshCompanies = useCallback(async (): Promise<boolean> => {
+    try {
+      const companyPage = await listCompanies();
+      setState((prev) => ({ ...prev, companies: companyPage.items }));
+      return true;
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        accessStatus: isAuthRequiredError(err) ? "UNAUTHENTICATED" : prev.accessStatus,
+        error: toFormError(err),
+      }));
+      return false;
+    }
+  }, []);
 
   const startAnalysis = useCallback(
     async (request: CreateEsDocumentRequest): Promise<boolean> => {
@@ -223,6 +345,15 @@ export function useEsRevision() {
           ...prev,
           progressStage: null,
           esRevision: esRevision ?? prev.esRevision,
+          esDocument: esDocument
+            ? {
+                ...esDocument,
+                status: "ANALYZED",
+                analyses: originalAnalysis
+                  ? [originalAnalysis, ...esDocument.analyses.filter((item) => item.id !== originalAnalysis!.id)]
+                  : esDocument.analyses,
+              }
+            : prev.esDocument,
           step: "ANALYSIS",
         }));
         return true;
@@ -249,7 +380,19 @@ export function useEsRevision() {
     setState((prev) => ({ ...prev, progressStage: "REVISING", error: null }));
     try {
       const esRevision = await reviseEsDocument(state.esDocument.id);
-      setState((prev) => ({ ...prev, progressStage: null, esRevision, step: "RESULT" }));
+      setState((prev) => ({
+        ...prev,
+        progressStage: null,
+        esRevision,
+        esDocument: prev.esDocument
+          ? {
+              ...prev.esDocument,
+              status: "REVISED",
+              revisions: [esRevision, ...prev.esDocument.revisions.filter((item) => item.id !== esRevision.id)],
+            }
+          : null,
+        step: "RESULT",
+      }));
       return true;
     } catch (err) {
       setState((prev) => ({
@@ -269,7 +412,19 @@ export function useEsRevision() {
     setState((prev) => ({ ...prev, progressStage: "VERIFYING", error: null }));
     try {
       const verifyAnalysis = await verifyEsRevision(revision.id);
-      setState((prev) => ({ ...prev, progressStage: null, verifyAnalysis, step: "COMMENTS" }));
+      setState((prev) => ({
+        ...prev,
+        progressStage: null,
+        verifyAnalysis,
+        esDocument: prev.esDocument
+          ? {
+              ...prev.esDocument,
+              status: verifyAnalysis.submissionReadiness === "READY_TO_SUBMIT" ? "VERIFIED" : "REVISED",
+              analyses: [verifyAnalysis, ...prev.esDocument.analyses.filter((item) => item.id !== verifyAnalysis.id)],
+            }
+          : null,
+        step: "COMMENTS",
+      }));
       return true;
     } catch (err) {
       setState((prev) => ({
@@ -314,6 +469,7 @@ export function useEsRevision() {
     accessStatus: state.accessStatus,
     companies: state.companies,
     experiences: state.experiences,
+    documents: state.documents,
     step: state.step,
     esDocument: state.esDocument,
     originalAnalysis: state.originalAnalysis,
@@ -323,11 +479,17 @@ export function useEsRevision() {
     submitting,
     verifying,
     reviewingChangeId: state.reviewingChangeId,
+    loadingDocumentId: state.loadingDocumentId,
     progressLabel: state.progressStage ? PROGRESS_LABEL[state.progressStage] : null,
     startAnalysis,
     requestRevision,
     requestComments,
     reviewChange,
+    startNewDocument,
+    openDocument,
+    backToHub,
+    editDocument,
+    refreshCompanies,
     reloadContext: loadScreenContext,
   };
 }

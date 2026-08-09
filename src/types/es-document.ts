@@ -18,6 +18,10 @@ export interface EsDocumentSummary {
   updatedAt: string;
 }
 
+export interface EsDocumentPage {
+  items: EsDocumentSummary[];
+}
+
 export interface EsDocument extends EsDocumentSummary {
   originalText: string;
   preferredExperienceIds: string[];

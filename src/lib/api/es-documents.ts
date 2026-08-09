@@ -4,6 +4,7 @@ import type {
   CreateEsRevisionRequest,
   EsAnalysis,
   EsDocument,
+  EsDocumentPage,
   EsRevision,
   EsTextExtraction,
   RevisionChange,
@@ -12,6 +13,20 @@ import type {
 } from "@/types/es-document";
 
 const BASE_URL = "/api/v1";
+
+// GET /api/v1/es-documents — ESタブの保存済み一覧
+export async function listEsDocuments(): Promise<EsDocumentPage> {
+  const res = await fetch(`${BASE_URL}/es-documents`);
+  await throwIfError(res);
+  return (await res.json()) as EsDocumentPage;
+}
+
+// GET /api/v1/es-documents/{esDocumentId} — 保存済みの入力・検査・推敲履歴を復元する
+export async function getEsDocument(esDocumentId: string): Promise<EsDocument> {
+  const res = await fetch(`${BASE_URL}/es-documents/${esDocumentId}`);
+  await throwIfError(res);
+  return (await res.json()) as EsDocument;
+}
 
 // POST /api/v1/es-documents
 export async function createEsDocument(request: CreateEsDocumentRequest): Promise<EsDocument> {

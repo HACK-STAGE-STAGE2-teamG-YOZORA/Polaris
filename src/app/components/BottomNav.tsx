@@ -62,7 +62,7 @@ const NAV_ITEMS = [
   // data-tutorial: 初回チュートリアルがChatタブをスポットライトで強調するための目印
   { label: "Chat", href: ANALYSIS_CHAT_PATH, icon: ChatIcon, tutorialId: "nav-chat-tab" },
   { label: "Cards", href: EXPERIENCES_PATH, icon: CardsIcon, tutorialId: undefined },
-  { label: "Review", href: ES_REVISION_PATH, icon: ReviewIcon, tutorialId: undefined },
+  { label: "ES", href: ES_REVISION_PATH, icon: ReviewIcon, tutorialId: undefined },
   { label: "User", href: ACCOUNT_PATH, icon: UserIcon, tutorialId: undefined },
 ] as const;
 

@@ -88,6 +88,8 @@ interface EsInputFormProps {
   fieldErrors: Record<string, string>;
   companies: CompanySummary[];
   experiences: ExperienceResponse[];
+  initialRequest?: CreateEsDocumentRequest | null;
+  existingDocument?: boolean;
   onSubmit: (request: CreateEsDocumentRequest) => void;
 }
 
@@ -99,14 +101,16 @@ export function EsInputForm({
   fieldErrors,
   companies,
   experiences,
+  initialRequest,
+  existingDocument = false,
   onSubmit,
 }: EsInputFormProps) {
-  const [companyId, setCompanyId] = useState("");
-  const [targetRole, setTargetRole] = useState("");
-  const [preferredExperienceIds, setPreferredExperienceIds] = useState<string[]>([]);
-  const [question, setQuestion] = useState("");
-  const [characterLimit, setCharacterLimit] = useState("400");
-  const [originalText, setOriginalText] = useState("");
+  const [companyId, setCompanyId] = useState(initialRequest?.companyId ?? "");
+  const [targetRole, setTargetRole] = useState(initialRequest?.targetRole ?? "");
+  const [preferredExperienceIds, setPreferredExperienceIds] = useState<string[]>(initialRequest?.preferredExperienceIds ?? []);
+  const [question, setQuestion] = useState(initialRequest?.question ?? "");
+  const [characterLimit, setCharacterLimit] = useState(String(initialRequest?.characterLimit ?? 400));
+  const [originalText, setOriginalText] = useState(initialRequest?.originalText ?? "");
   const [extracting, setExtracting] = useState(false);
   const [extractionToast, setExtractionToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -138,6 +142,7 @@ export function EsInputForm({
       characterLimit: characterLimitValue,
       originalText,
       preferredExperienceIds,
+      emphasis: initialRequest?.emphasis ?? [],
     });
   };
 
@@ -190,7 +195,7 @@ export function EsInputForm({
       <Stack spacing={2}>
         <Box>
           <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
-            ESを入力する
+            {existingDocument ? "保存済みESを編集する" : "ESを入力する"}
           </Typography>
           <Typography variant="body2" sx={{ mt: 0.5, color: CHAT_COLORS.textOnDarkMuted, lineHeight: 1.7 }}>
             設問と原文を入力してください。確認済みの経験を優先すると、根拠との照合がより明確になります。
@@ -387,7 +392,7 @@ export function EsInputForm({
             "&.Mui-disabled": { bgcolor: CHAT_COLORS.orangeMuted, color: CHAT_COLORS.textOnDarkMuted },
           }}
         >
-          検査する
+            {existingDocument ? "更新して再検査する" : "保存して検査する"}
         </Button>
 
         {submitting && progressLabel && (

@@ -27,7 +27,7 @@ export function HomeEsList({ documents }: { documents: EsDocumentSummary[] }) {
             variant="outlined"
             sx={{ color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder, borderRadius: "999px" }}
           >
-            ES添削へ
+            ESを作成・管理
           </Button>
         </Stack>
       ) : (
@@ -63,6 +63,15 @@ export function HomeEsList({ documents }: { documents: EsDocumentSummary[] }) {
                 {document.characterCount} / {document.characterLimit}文字 / 更新{" "}
                 {new Date(document.updatedAt).toLocaleString()}
               </Typography>
+              <Button
+                component={Link}
+                href={`${ES_REVISION_PATH}?document=${encodeURIComponent(document.id)}`}
+                size="small"
+                variant="text"
+                sx={{ alignSelf: "flex-start", px: 0, color: CHAT_COLORS.orange }}
+              >
+                開いて続ける
+              </Button>
             </Stack>
           </Box>
         ))
