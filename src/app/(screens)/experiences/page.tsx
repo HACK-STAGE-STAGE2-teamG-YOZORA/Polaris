@@ -22,6 +22,7 @@ import { useExperiences } from "./use-experiences";
 import type { ExperienceFilter, ExperienceSortMode } from "./use-experiences";
 import { ExperienceCardForm } from "@/app/components/ExperienceCardForm";
 import { SessionReportDialog } from "@/app/components/SessionReportDialog";
+import { YozoraPageShell } from "@/app/components/YozoraPageShell";
 import { ANALYSIS_CHAT_PATH, SYSTEM_STATUS_PATH } from "@/shared/routes";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 
@@ -69,31 +70,35 @@ export default function ExperiencesPage() {
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
 
   return (
-    <Box
-      component="main"
-      sx={{
-        minHeight: "100dvh",
-        pb: "72px",
-        color: CHAT_COLORS.textOnDark,
-        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
-      }}
+    <YozoraPageShell
+      section="CARDS"
+      title="経験カード"
+      description={
+        <>
+          確認済み <Box component="span" sx={{ color: CHAT_COLORS.orange, fontWeight: 700 }}>{confirmedCount}件</Box>。
+          会話から見つけた経験を確かめ、自己分析とESの根拠として育てます。
+        </>
+      }
     >
-      <Box sx={{ width: "100%", maxWidth: 560, mx: "auto", px: 2, pt: 3 }}>
-        <Typography component="h1" sx={{ fontSize: 28, fontWeight: 400, letterSpacing: "0.08em", mb: 1 }}>
-          経験一覧
-        </Typography>
-        <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted, mb: 2 }}>
-          確認済み{confirmedCount}件。確認済みにした経験だけが4軸分析とESの根拠になります。
-        </Typography>
-
-        <Stack spacing={2}>
+      <Stack spacing={2}>
+        <Box
+          sx={{
+            borderRadius: 3,
+            border: `1px solid ${CHAT_COLORS.navyBorder}`,
+            bgcolor: CHAT_COLORS.navySurface,
+            p: 1.5,
+          }}
+        >
+          <Stack spacing={1.5}>
           <ToggleButtonGroup
             exclusive
             size="small"
             value={filter}
             onChange={(_event, value: ExperienceFilter | null) => value && setFilter(value)}
             sx={{
+              width: "100%",
               "& .MuiToggleButton-root": {
+                flex: 1,
                 color: CHAT_COLORS.textOnDarkMuted,
                 borderColor: CHAT_COLORS.navyBorder,
                 "&.Mui-selected": {
@@ -119,6 +124,7 @@ export default function ExperiencesPage() {
             onChange={(event) => setSortMode(event.target.value as ExperienceSortMode)}
             sx={{
               maxWidth: 280,
+              width: "100%",
               "& .MuiInputLabel-root": { color: CHAT_COLORS.textOnDarkMuted },
               "& .MuiOutlinedInput-root": {
                 color: CHAT_COLORS.textOnDark,
@@ -134,9 +140,15 @@ export default function ExperiencesPage() {
               </MenuItem>
             ))}
           </TextField>
+          </Stack>
+        </Box>
 
           {notice && (
-            <Typography variant="body2" sx={{ color: CHAT_COLORS.orange }}>
+            <Typography
+              role="status"
+              variant="body2"
+              sx={{ borderLeft: `3px solid ${CHAT_COLORS.orange}`, color: CHAT_COLORS.orange, pl: 1.5 }}
+            >
               {notice}
             </Typography>
           )}
@@ -167,7 +179,11 @@ export default function ExperiencesPage() {
           )}
 
           {!loading && items.length === 0 && (
-            <Stack spacing={1.5} sx={{ alignItems: "flex-start" }}>
+            <Stack
+              spacing={1.5}
+              sx={{ alignItems: "flex-start", border: `1px dashed ${CHAT_COLORS.navyBorder}`, borderRadius: 3, p: 2.5 }}
+            >
+              <Typography sx={{ color: CHAT_COLORS.orange, fontSize: 22, lineHeight: 1 }}>✦</Typography>
               <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
                 {filter === "ALL"
                   ? "経験カードがまだありません。自己分析チャットで会話すると作成できます。"
@@ -218,6 +234,7 @@ export default function ExperiencesPage() {
               {sessionGroups.map((group) => (
                 <Stack key={group.sessionId ?? "__none__"} spacing={1.5}>
                   <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", flexWrap: "wrap" }}>
+                    <Typography aria-hidden sx={{ color: CHAT_COLORS.orange, fontSize: 12 }}>✦</Typography>
                     <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                       {group.sessionTitle}
                     </Typography>
@@ -254,8 +271,7 @@ export default function ExperiencesPage() {
               ))}
             </Stack>
           )}
-        </Stack>
-      </Box>
+      </Stack>
 
       <Dialog open={pendingDelete !== null} onClose={() => setPendingDeleteId(null)}>
         <DialogTitle>この経験カードを削除しますか？</DialogTitle>
@@ -286,6 +302,6 @@ export default function ExperiencesPage() {
           onClose={() => setViewingSessionId(null)}
         />
       )}
-    </Box>
+    </YozoraPageShell>
   );
 }

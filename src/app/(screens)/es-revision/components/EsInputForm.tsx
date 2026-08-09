@@ -38,6 +38,19 @@ const MAX_CHARACTER_LIMIT = 10000;
 // docs/openapi.yaml POST /api/v1/es-text-extractions が受け付けるファイル形式
 const ACCEPTED_FILE_TYPES = "image/png,image/jpeg,application/pdf";
 
+const selectControlSx = {
+  "& .MuiInputLabel-root": { color: CHAT_COLORS.textOnDarkMuted },
+  "& .MuiInputLabel-root.Mui-focused": { color: CHAT_COLORS.orange },
+  "& .MuiOutlinedInput-root": {
+    bgcolor: CHAT_COLORS.userBubble,
+    borderRadius: "16px",
+    "& fieldset": { borderColor: CHAT_COLORS.orange, borderWidth: 2 },
+    "&:hover fieldset": { borderColor: CHAT_COLORS.orange },
+    "&.Mui-focused fieldset": { borderColor: CHAT_COLORS.orange },
+  },
+  "& .MuiFormHelperText-root": { color: CHAT_COLORS.textOnDarkMuted },
+};
+
 // POST /api/v1/es-text-extractions のエラーレスポンスを画面表示用の文言へ変換する
 function toExtractionErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
@@ -157,18 +170,34 @@ export function EsInputForm({
   return (
     <Box
       sx={{
+        position: "relative",
+        overflow: "hidden",
         borderRadius: 3,
         border: `1px solid ${CHAT_COLORS.navyBorder}`,
         bgcolor: CHAT_COLORS.navySurface,
         p: 2.5,
+        "&::before": {
+          content: '""',
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 2,
+          bgcolor: CHAT_COLORS.orange,
+        },
       }}
     >
       <Stack spacing={2}>
-        <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
-          ESを入力する
-        </Typography>
+        <Box>
+          <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
+            ESを入力する
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.5, color: CHAT_COLORS.textOnDarkMuted, lineHeight: 1.7 }}>
+            設問と原文を入力してください。確認済みの経験を優先すると、根拠との照合がより明確になります。
+          </Typography>
+        </Box>
 
-        <FormControl fullWidth error={Boolean(fieldErrors.companyId)}>
+        <FormControl fullWidth error={Boolean(fieldErrors.companyId)} sx={selectControlSx}>
           <InputLabel id="es-company-label">企業（任意）</InputLabel>
           <Select
             labelId="es-company-label"
@@ -181,7 +210,6 @@ export function EsInputForm({
               const company = companies.find((item) => item.id === nextCompanyId);
               if (!targetRole.trim() && company?.targetRole) setTargetRole(company.targetRole);
             }}
-            sx={{ bgcolor: CHAT_COLORS.userBubble, borderRadius: "16px" }}
           >
             <MenuItem value="">企業を指定しない</MenuItem>
             {companies.map((company) => (
@@ -214,7 +242,7 @@ export function EsInputForm({
           />
         </Stack>
 
-        <FormControl fullWidth error={Boolean(fieldErrors.preferredExperienceIds)}>
+        <FormControl fullWidth error={Boolean(fieldErrors.preferredExperienceIds)} sx={selectControlSx}>
           <InputLabel id="es-experiences-label">優先する経験（任意）</InputLabel>
           <Select
             labelId="es-experiences-label"
@@ -231,7 +259,6 @@ export function EsInputForm({
                 .map((id) => experiences.find((experience) => experience.id === id)?.title ?? id)
                 .join("、")
             }
-            sx={{ bgcolor: CHAT_COLORS.userBubble, borderRadius: "16px" }}
           >
             {experiences.map((experience) => (
               <MenuItem key={experience.id} value={experience.id}>

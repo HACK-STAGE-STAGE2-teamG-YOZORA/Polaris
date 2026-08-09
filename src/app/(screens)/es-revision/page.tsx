@@ -2,6 +2,7 @@
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
@@ -11,7 +12,10 @@ import { EsErrorBanner } from "./components/EsErrorBanner";
 import { EsInputForm } from "./components/EsInputForm";
 import { EsRevisionResult } from "./components/EsRevisionResult";
 import { useEsRevision } from "./use-es-revision";
+import { YozoraPageShell } from "@/app/components/YozoraPageShell";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
+
+const REVIEW_STEPS = ["ES入力", "根拠を検査", "完成版"] as const;
 
 // このファイルは状態とAPI呼び出しを持つuseEsRevisionフックと、
 // 見た目だけを担うcomponents/配下を繋ぐだけの薄い層にする。
@@ -39,26 +43,31 @@ export default function EsRevisionPage() {
     reviewChange,
     reloadContext,
   } = useEsRevision();
+  const activeStep = step === "INPUT" ? 0 : step === "ANALYSIS" ? 1 : 2;
 
   return (
-    <Box
-      sx={{
-        minHeight: "100dvh",
-        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
-        display: "flex",
-        justifyContent: "center",
-        pb: "72px",
-      }}
+    <YozoraPageShell
+      section="REVIEW"
+      title="ES推敲"
+      description="確認済みの経験と照らし合わせながら、あなたらしさが伝わる文章へ磨きます。"
     >
-      <Box sx={{ width: "100%", maxWidth: 560, px: 2, pt: 3 }}>
-        <Stack spacing={2}>
-          <Typography
-            variant="h5"
-            component="h1"
-            sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700, textAlign: "center" }}
-          >
-            ES推敲
-          </Typography>
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: "wrap" }} aria-label="ES推敲の進行状況">
+          {REVIEW_STEPS.map((label, index) => (
+            <Chip
+              key={label}
+              size="small"
+              label={`${String(index + 1).padStart(2, "0")} ${label}`}
+              sx={
+                index === activeStep
+                  ? { bgcolor: CHAT_COLORS.orange, color: CHAT_COLORS.bubbleText, fontWeight: 700 }
+                  : index < activeStep
+                    ? { color: CHAT_COLORS.orange, border: `1px solid ${CHAT_COLORS.orange}`, bgcolor: CHAT_COLORS.orangeMuted }
+                    : { color: CHAT_COLORS.textOnDarkMuted, border: `1px solid ${CHAT_COLORS.navyBorder}`, bgcolor: "transparent" }
+              }
+            />
+          ))}
+        </Stack>
 
           {error && <EsErrorBanner error={error} />}
 
@@ -93,7 +102,11 @@ export default function EsRevisionPage() {
           )}
 
           {accessStatus === "ERROR" && (
-            <Button variant="outlined" onClick={() => void reloadContext()} sx={{ color: CHAT_COLORS.orange }}>
+            <Button
+              variant="outlined"
+              onClick={() => void reloadContext()}
+              sx={{ alignSelf: "flex-start", color: CHAT_COLORS.orange, borderColor: CHAT_COLORS.orange, borderRadius: "999px" }}
+            >
               読み込みを再試行
             </Button>
           )}
@@ -125,7 +138,7 @@ export default function EsRevisionPage() {
                 disabled={submitting}
                 onClick={() => void requestRevision()}
                 startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
-                sx={{ bgcolor: CHAT_COLORS.orange, color: CHAT_COLORS.bubbleText, fontWeight: 700 }}
+                sx={{ bgcolor: CHAT_COLORS.orange, color: CHAT_COLORS.bubbleText, fontWeight: 700, borderRadius: "999px" }}
               >
                 完成版ES案を作る
               </Button>
@@ -157,8 +170,7 @@ export default function EsRevisionPage() {
               submissionReadiness={verifyAnalysis.submissionReadiness}
             />
           )}
-        </Stack>
-      </Box>
-    </Box>
+      </Stack>
+    </YozoraPageShell>
   );
 }

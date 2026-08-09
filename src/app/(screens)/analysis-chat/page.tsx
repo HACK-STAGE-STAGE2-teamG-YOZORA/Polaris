@@ -6,7 +6,6 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
-import Typography from "@mui/material/Typography";
 
 import { AxisAssessmentReview } from "./components/AxisAssessmentReview";
 import { CompletionBanner } from "./components/CompletionBanner";
@@ -22,24 +21,18 @@ import { useAnalysisChat } from "./use-analysis-chat";
 import type { InitialStartAction } from "./use-analysis-chat";
 import { SessionReportDialog } from "@/app/components/SessionReportDialog";
 import { ChatTutorialHints } from "@/app/components/tutorial/ChatTutorialHints";
+import { YozoraPageShell } from "@/app/components/YozoraPageShell";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
 
-// 画面全体の背景。ローディング時と本体で同じ見た目にするために切り出す
-function ChatBackground({ children }: { children: React.ReactNode }) {
+function ChatPageShell({ children }: { children: React.ReactNode }) {
   return (
-    <Box
-      sx={{
-        minHeight: "100dvh",
-        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
-        display: "flex",
-        justifyContent: "center",
-        pb: "72px",
-      }}
+    <YozoraPageShell
+      section="CHAT"
+      title="自己分析チャット"
+      description="会話の中から、あなたの選択や行動を星のようにつなぎ、自己分析の輪郭を見つけます。"
     >
-      <Box sx={{ width: "100%", maxWidth: 560, px: 2, pt: 3, display: "flex", flexDirection: "column" }}>
-        {children}
-      </Box>
-    </Box>
+      {children}
+    </YozoraPageShell>
   );
 }
 
@@ -48,11 +41,11 @@ export default function AnalysisChatPage() {
   return (
     <Suspense
       fallback={
-        <ChatBackground>
+        <ChatPageShell>
           <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
             <CircularProgress size={24} sx={{ color: CHAT_COLORS.orange }} />
           </Box>
-        </ChatBackground>
+        </ChatPageShell>
       }
     >
       <AnalysisChatContent />
@@ -178,21 +171,13 @@ function AnalysisChatContent() {
   const showStartForm = !session && !loadingResumable && showNewSessionForm;
 
   return (
-    <ChatBackground>
+    <ChatPageShell>
       <ChatTutorialHints
         loadingResumable={loadingResumable}
         showPicker={showPicker}
         session={session}
       />
       <Stack spacing={2}>
-        <Typography
-          variant="h6"
-          component="h1"
-          sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700, textAlign: "center" }}
-        >
-          自己分析チャット
-        </Typography>
-
         {error && <ErrorBanner error={error} />}
 
         {!session && loadingResumable && (
@@ -331,6 +316,6 @@ function AnalysisChatContent() {
           onClose={() => setViewingSessionId(null)}
         />
       )}
-    </ChatBackground>
+    </ChatPageShell>
   );
 }
