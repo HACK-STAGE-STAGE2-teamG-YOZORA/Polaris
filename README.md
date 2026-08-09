@@ -1,93 +1,53 @@
 # Polaris
 
-根拠付き自己分析と、確認済みの経験・企業情報だけを使うES推敲を行う、ローカルAI就活支援アプリです。
+> 経験を言葉にし、納得できる就活の軸を見つける。ローカルAIを活用した自己分析・ES推敲サービス。
 
-実装前に[設計ドキュメント](./docs/README.md)と[OpenAPI仕様](./docs/openapi.yaml)を確認してください。
+Polarisは、就活を始めた学生が「自分の経験をうまく言語化できない」「生成AIが事実を盛ってしまう」という悩みを解決するWebアプリです。AIとの対話から経験を整理し、根拠をたどれる自己分析と、確認済みの事実だけに基づくES推敲を支援します。
 
-現在は、LM Studioを使うAI Adapter、Next.js Route Handler、Prisma／PostgreSQL永続化まで実装されています。画面は統合途中です。
+## 主な機能
 
-## 現在動くもの
+- **対話型の自己分析** — AIが一問ずつ経験を深掘りし、内容を経験カードとして整理
+- **根拠付き4軸分析** — Focus / Connect、Plan / Experiment、Mastery / Impact、Stable / Dynamicの4軸で傾向を可視化
+- **経験の確認・蓄積** — AIの解釈を本人が修正・確認し、すべての分析結果から発言や経験まで遡れる設計
+- **ESの検査・推敲** — テキスト・画像・PDFからESを取り込み、設問・文字数・本人経験・企業情報との整合性を確認
+- **事実に基づく改善提案** — 未確認の数字や役割を創作せず、変更理由と根拠を示した完成版ES案を生成
 
-- 一問ずつ深掘りする自己分析チャット
-- 会話からの経験カード抽出
-- 抽出内容が本人の明示発言かを再検査する推測防止処理
-- 確認済み経験からのCAN／WANT／ENERGY／CONTEXT仮説生成
-- 本人経験・企業事実に基づくES検査、推敲、再検査
-- AI出力のJSON Schema、参照ID、引用原文の検証
-- `/api/v1`の自己分析、経験、4軸、総合プロフィール、ES検査・推敲API
-- Prisma／PostgreSQLによるセッション、根拠、分析結果の永続化
-- Google OAuth 2.0／OpenID Connectによるログイン・新規登録・ログアウトAPI
+## 利用の流れ
 
-## 初回セットアップ
+1. Googleアカウントでログイン
+2. AIとの会話を通して経験を振り返る
+3. 経験カードと4軸の分析結果を自分で確認する
+4. ESを入力し、蓄積した経験を根拠に検査・推敲する
+5. 修正版を再検査し、提出前の確認を完了する
+
+## 特徴
+
+Polarisは、MBTIのように人を固定的なタイプへ分類しません。分析はあくまで現在の経験から得られる仮説として扱い、「状況による」「根拠が足りない」という結果もそのまま示します。また、AI処理にはLM Studio上のローカルLLMを利用し、本人が確認した経験と出典付きの企業情報を根拠として回答を生成します。
+
+## ローカルでの起動
 
 ```powershell
 npm.cmd install
 Copy-Item .env.example .env
 npm.cmd run prisma:generate
 npm.cmd run db:migrate:deploy
+npm.cmd run dev
 ```
 
-`.env`の`DATABASE_URL`をPostgreSQL 16またはNeonの接続URLへ変更してください。`.env.example`の値を使う場合は、同じユーザー・パスワード・DB名でローカルPostgreSQLを用意します。`LM_STUDIO_MODEL_ID`は、LM Studioで実際にロードするモデルIDと一致させてください。詳しいmigrationと既存SQLiteデータの方針は[PostgreSQL移行手順](./docs/postgresql-migration.md)を参照してください。
+PostgreSQLとLM Studioを起動し、`.env`へ接続情報とGoogle OAuthの認証情報を設定してください。詳しい構成や仕様は[設計ドキュメント](./docs/README.md)を参照してください。
 
-### Google認証の設定
+## Tech Stack
 
-Google Cloud ConsoleでWebアプリケーション用のOAuthクライアントを作成し、承認済みリダイレクトURIへ次を完全一致で登録します。
+### Frontend
 
-```text
-http://localhost:3000/api/v1/auth/google/callback
-```
+<p>
+  <img src="https://skillicons.dev/icons?i=ts,nextjs,react,materialui" alt="TypeScript, Next.js, React, Material UI" />
+</p>
 
-`.env`の`GOOGLE_OAUTH_CLIENT_ID`と`GOOGLE_OAUTH_CLIENT_SECRET`へ発行値を設定してください。`APP_URL`を変更した場合は、同じオリジンの`/api/v1/auth/google/callback`をGoogle側にも登録します。未設定時は既存P0機能を停止せず、認証開始APIだけが`AUTH_NOT_CONFIGURED`を返します。
+### Backend / AI
 
-ログイン開始は`GET /api/v1/auth/google/start`、状態確認は`GET /api/v1/auth/session`、ログアウトは`POST /api/v1/auth/logout`です。Systemと認証開始・コールバック以外のAPIはログイン必須で、自己分析・経験・総合プロフィール・企業・ES・企業提案は認証ユーザーごとに分離されます。
-
-## CI
-
-`develop`または`main`へのPull Requestとpushで、GitHub Actionsが次を自動実行します。
-
-```powershell
-npm.cmd run test:ci
-npm.cmd run build
-```
-
-`test:ci`は、型検査、OpenAPI／Prisma／Route／主要APIレスポンスの契約検査、PNG/PDF/OCR、AI入力上限、loopback限定、AI出力スキーマ、AI安定化、P1ユニットテストをまとめたLM Studio不要の検査です。実モデルを使うE2E・エラー・安定性テストはCIに含めず、LM Studioを起動した開発PCで実行します。
-
-## LM Studioで試す
-
-前提:
-
-1. LM StudioのLocal Serverを`http://127.0.0.1:1234`で起動する。
-2. `.env`の`LM_STUDIO_MODEL_ID`と同じモデルをロードする。
-3. 現在の推奨は`qwen/qwen3.5-9b`。
-
-対話型の自己分析CLI:
-
-```powershell
-npm.cmd run self-analysis
-```
-
-会話中のコマンド:
-
-- `/card`: 現在の会話から本人確認前の経験カード案を作る
-- `/retry`: AI出力の検証に失敗した場合、会話を保持したまま再試行する
-- `/quit`: 終了する
-
-実機テスト:
-
-```powershell
-npm.cmd run typecheck
-npm.cmd run test:contracts
-npm.cmd run test:ai-schema
-npm.cmd run test:self-analysis-ai
-npm.cmd run test:career-ai
-npm.cmd run test:ai-p0
-```
-
-`test:ai-p0`は、一時PostgreSQL schemaと一時ポートのNext.jsサーバーを自動作成し、次をHTTP経由で検証して終了時にそのschemaだけを削除します。
-
-- 自己分析チャット、冪等再送、経験抽出・確認、追加回答後の再分析、4軸生成・本人評価、レポート確定、複数セッション総合分析
-- 経験0件の根拠不足結果、ADR-032のデータ不足／十分状態
-- 企業公式情報付きES原文検査、完成版生成、推敲後の独立再検査、提出可能状態
-- `AI_TIMEOUT`、`AI_INVALID_OUTPUT`、`AI_UNAVAILABLE`と、失敗時に部分データを保存しないこと
-
-AI Adapterは[`src/infrastructure/ai`](./src/infrastructure/ai/)にあり、Web実装時はRoute Handlerから直接プロンプトを呼ばず、`LmStudioPolarisAiGateway`をApplication Service経由で利用します。
+<p>
+  <img src="https://skillicons.dev/icons?i=nodejs,prisma,postgres" alt="Node.js, Prisma, PostgreSQL" />
+  &nbsp;
+  <img src="https://img.shields.io/badge/LM_Studio-151515?style=for-the-badge&logo=lmstudio&logoColor=white" alt="LM Studio" />
+</p>
