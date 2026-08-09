@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 import SvgIcon from "@mui/material/SvgIcon";
@@ -12,6 +13,7 @@ import Typography from "@mui/material/Typography";
 
 import { useAuthUser } from "@/app/components/AuthGate";
 import { useTutorial } from "@/app/components/tutorial/TutorialProvider";
+import { YozoraPageShell } from "@/app/components/YozoraPageShell";
 import { logout } from "@/lib/api/auth";
 import { toDisplayError } from "@/lib/api/error-messages";
 import { HOME_PATH, LOGIN_PATH } from "@/shared/routes";
@@ -54,27 +56,28 @@ export default function AccountPage() {
   };
 
   return (
-    <Box
-      component="main"
-      sx={{
-        minHeight: "100dvh",
-        pb: "72px",
-        color: CHAT_COLORS.textOnDark,
-        background: `linear-gradient(180deg, ${CHAT_COLORS.gradientTop} 0%, ${CHAT_COLORS.gradientMid} 46%, ${CHAT_COLORS.gradientBottom} 100%)`,
-      }}
+    <YozoraPageShell
+      section="USER"
+      title="アカウント"
+      description="あなたの記録と、polarisを使うための設定を確認できます。"
     >
-      <Box sx={{ width: "100%", maxWidth: 560, mx: "auto", px: 2, pt: 3 }}>
-        <Typography component="h1" sx={{ fontSize: 28, fontWeight: 400, letterSpacing: "0.08em", mb: 3 }}>
-          アカウント
-        </Typography>
-
-        <Stack spacing={2}>
+      <Stack spacing={2}>
           <Box
             sx={{
+              position: "relative",
+              overflow: "hidden",
               borderRadius: 3,
-              border: `1px solid ${CHAT_COLORS.navyBorder}`,
+              border: `1px solid ${CHAT_COLORS.orange}`,
               bgcolor: CHAT_COLORS.navySurface,
               p: 2.5,
+              "&::after": {
+                content: '"✦"',
+                position: "absolute",
+                top: 10,
+                right: 14,
+                color: CHAT_COLORS.orange,
+                fontSize: 18,
+              },
             }}
           >
             <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
@@ -82,15 +85,26 @@ export default function AccountPage() {
                 src={user?.avatarUrl ?? undefined}
                 alt={user?.displayName ?? user?.email ?? "プロフィール"}
                 slotProps={{ img: { referrerPolicy: "no-referrer" } }}
-                sx={{ width: 64, height: 64, bgcolor: "#F5F5F5", color: "#54708D" }}
+                sx={{
+                  width: 72,
+                  height: 72,
+                  bgcolor: "#F5F5F5",
+                  color: "#54708D",
+                  border: `2px solid ${CHAT_COLORS.orange}`,
+                }}
               >
                 <ProfileIcon />
               </Avatar>
-              <Stack spacing={0.25}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+                <Chip
+                  size="small"
+                  label="Googleでログイン中"
+                  sx={{ alignSelf: "flex-start", bgcolor: CHAT_COLORS.orangeMuted, color: CHAT_COLORS.orange, fontSize: 11 }}
+                />
+                <Typography variant="h6" sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>
                   {user?.displayName ?? "名前未設定"}
                 </Typography>
-                <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
+                <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted, overflowWrap: "anywhere" }}>
                   {user?.email}
                 </Typography>
               </Stack>
@@ -106,13 +120,16 @@ export default function AccountPage() {
             }}
           >
             <Stack spacing={1.5} sx={{ alignItems: "flex-start" }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                はじめてガイド
+              </Typography>
               <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
                 Homeの使い方をもう一度、案内付きで確認できます。
               </Typography>
               <Button
                 variant="outlined"
                 onClick={handleRestartTutorial}
-                sx={{ color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder, borderRadius: "999px" }}
+                sx={{ color: CHAT_COLORS.orange, borderColor: CHAT_COLORS.orange, borderRadius: "999px" }}
               >
                 チュートリアルをもう一度見る
               </Button>
@@ -128,6 +145,9 @@ export default function AccountPage() {
             }}
           >
             <Stack spacing={1.5} sx={{ alignItems: "flex-start" }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                セッション
+              </Typography>
               <Typography variant="body2" sx={{ color: CHAT_COLORS.textOnDarkMuted }}>
                 ログアウトすると、次回はGoogleアカウントで再度ログインが必要になります。
               </Typography>
@@ -148,8 +168,7 @@ export default function AccountPage() {
               </Button>
             </Stack>
           </Box>
-        </Stack>
-      </Box>
-    </Box>
+      </Stack>
+    </YozoraPageShell>
   );
 }

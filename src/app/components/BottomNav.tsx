@@ -93,12 +93,28 @@ export function BottomNav() {
         value={activeHref}
         sx={{
           bgcolor: CHAT_COLORS.navy,
+          height: "calc(64px + env(safe-area-inset-bottom))",
+          pb: "env(safe-area-inset-bottom)",
           "& .MuiBottomNavigationAction-root": {
+            position: "relative",
             color: CHAT_COLORS.textOnDarkMuted,
             minWidth: 64,
+            transition: "color 160ms ease, transform 160ms ease",
+            "&::before": {
+              content: '"✦"',
+              position: "absolute",
+              top: 2,
+              color: CHAT_COLORS.orange,
+              fontSize: 9,
+              opacity: 0,
+              transform: "translateY(3px)",
+              transition: "opacity 160ms ease, transform 160ms ease",
+            },
           },
           "& .Mui-selected": {
             color: CHAT_COLORS.orange,
+            transform: "translateY(-1px)",
+            "&::before": { opacity: 1, transform: "translateY(0)" },
           },
         }}
       >

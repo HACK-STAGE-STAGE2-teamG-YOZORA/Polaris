@@ -38,14 +38,26 @@ export function ExperienceListItem({
   return (
     <Box
       sx={{
+        position: "relative",
+        overflow: "hidden",
         borderRadius: 3,
         border: `1px solid ${confirmed ? CHAT_COLORS.orange : CHAT_COLORS.navyBorder}`,
         bgcolor: CHAT_COLORS.navySurface,
-        p: 2,
+        p: 2.25,
+        "&::before": {
+          content: '""',
+          position: "absolute",
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: 3,
+          bgcolor: confirmed ? CHAT_COLORS.orange : CHAT_COLORS.navyBorder,
+        },
       }}
     >
-      <Stack spacing={1}>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+      <Stack spacing={1.25}>
+        <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 0.5 }}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 0.5 }}>
           <Chip
             size="small"
             label={EXPERIENCE_STATUS_LABELS[experience.status]}
@@ -60,9 +72,13 @@ export function ExperienceListItem({
             label={EXPERIENCE_TYPE_LABELS[experience.type]}
             sx={{ bgcolor: "transparent", color: CHAT_COLORS.textOnDarkMuted, border: `1px solid ${CHAT_COLORS.navyBorder}` }}
           />
+          </Stack>
+          <Typography aria-hidden sx={{ color: confirmed ? CHAT_COLORS.orange : CHAT_COLORS.textOnDarkMuted, fontSize: 14 }}>
+            ✦
+          </Typography>
         </Stack>
 
-        <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700 }}>
+        <Typography variant="subtitle1" sx={{ color: CHAT_COLORS.textOnDark, fontWeight: 700, fontSize: 17, lineHeight: 1.6 }}>
           {experience.title}
         </Typography>
 
@@ -70,6 +86,7 @@ export function ExperienceListItem({
           variant="body2"
           sx={{
             color: CHAT_COLORS.textOnDarkMuted,
+            lineHeight: 1.8,
             display: "-webkit-box",
             WebkitLineClamp: 3,
             WebkitBoxOrient: "vertical",
@@ -90,7 +107,14 @@ export function ExperienceListItem({
             variant="outlined"
             onClick={onEdit}
             disabled={disabled}
-            sx={{ color: CHAT_COLORS.textOnDark, borderColor: CHAT_COLORS.navyBorder, borderRadius: "999px" }}
+            sx={{
+              color: confirmed ? CHAT_COLORS.textOnDark : CHAT_COLORS.bubbleText,
+              borderColor: confirmed ? CHAT_COLORS.navyBorder : CHAT_COLORS.orange,
+              bgcolor: confirmed ? "transparent" : CHAT_COLORS.orange,
+              borderRadius: "999px",
+              fontWeight: 700,
+              "&:hover": { borderColor: CHAT_COLORS.orange, bgcolor: confirmed ? CHAT_COLORS.orangeMuted : CHAT_COLORS.orangeDark },
+            }}
           >
             {confirmed ? "内容を見る・修正する" : "確認して確定する"}
           </Button>

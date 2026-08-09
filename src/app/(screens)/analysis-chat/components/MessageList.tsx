@@ -29,7 +29,22 @@ export function MessageList({ messages }: MessageListProps) {
             key={message.id}
             sx={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}
           >
-            <Box sx={{ maxWidth: "78%" }}>
+            <Box sx={{ maxWidth: { xs: "88%", sm: "78%" } }}>
+              <Typography
+                variant="caption"
+                component="div"
+                sx={{
+                  mb: 0.5,
+                  px: 0.5,
+                  color: isUser ? CHAT_COLORS.textOnDarkMuted : CHAT_COLORS.orange,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.14em",
+                  textAlign: isUser ? "right" : "left",
+                }}
+              >
+                {isUser ? "YOU" : "✦ POLARIS"}
+              </Typography>
               <Box
                 sx={{
                   position: "relative",
@@ -38,7 +53,8 @@ export function MessageList({ messages }: MessageListProps) {
                   borderRadius: "18px",
                   px: 2,
                   py: 1.25,
-                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.35)",
+                  border: "1px solid rgba(255,255,255,.18)",
+                  boxShadow: "0 6px 18px rgba(0, 0, 0, 0.24)",
                   "&::after": {
                     content: '""',
                     position: "absolute",
