@@ -1,45 +1,53 @@
 # Polaris
 
-根拠付き自己分析と、確認済みの経験・企業情報だけを使うES推敲を行う、ローカルAI就活支援アプリです。
+> 経験を言葉にし、納得できる就活の軸を見つける。ローカルAIを活用した自己分析・ES推敲サービス。
 
-実装前に[設計ドキュメント](./docs/README.md)と[OpenAPI仕様](./docs/openapi.yaml)を確認してください。
+Polarisは、就活を始めた学生が「自分の経験をうまく言語化できない」「生成AIが事実を盛ってしまう」という悩みを解決するWebアプリです。AIとの対話から経験を整理し、根拠をたどれる自己分析と、確認済みの事実だけに基づくES推敲を支援します。
 
-現在は、LM Studioを使うAIコアの最初の縦方向実装まで動作します。Next.js画面、API、DB永続化は未実装です。
+## 主な機能
 
-## 現在動くもの
+- **対話型の自己分析** — AIが一問ずつ経験を深掘りし、内容を経験カードとして整理
+- **根拠付き4軸分析** — Focus / Connect、Plan / Experiment、Mastery / Impact、Stable / Dynamicの4軸で傾向を可視化
+- **経験の確認・蓄積** — AIの解釈を本人が修正・確認し、すべての分析結果から発言や経験まで遡れる設計
+- **ESの検査・推敲** — テキスト・画像・PDFからESを取り込み、設問・文字数・本人経験・企業情報との整合性を確認
+- **事実に基づく改善提案** — 未確認の数字や役割を創作せず、変更理由と根拠を示した完成版ES案を生成
 
-- 一問ずつ深掘りする自己分析チャット
-- 会話からの経験カード抽出
-- 抽出内容が本人の明示発言かを再検査する推測防止処理
-- 確認済み経験からのCAN／WANT／ENERGY／CONTEXT仮説生成
-- 本人経験・企業事実に基づくES検査、推敲、再検査
-- AI出力のJSON Schema、参照ID、引用原文の検証
+## 利用の流れ
 
-## LM Studioで試す
+1. Googleアカウントでログイン
+2. AIとの会話を通して経験を振り返る
+3. 経験カードと4軸の分析結果を自分で確認する
+4. ESを入力し、蓄積した経験を根拠に検査・推敲する
+5. 修正版を再検査し、提出前の確認を完了する
 
-前提:
+## 特徴
 
-1. LM StudioのLocal Serverを`http://127.0.0.1:1234`で起動する。
-2. `.env`の`LM_STUDIO_MODEL_ID`と同じモデルをロードする。
-3. 現在の推奨は`qwen/qwen3.5-9b`。
+Polarisは、MBTIのように人を固定的なタイプへ分類しません。分析はあくまで現在の経験から得られる仮説として扱い、「状況による」「根拠が足りない」という結果もそのまま示します。また、AI処理にはLM Studio上のローカルLLMを利用し、本人が確認した経験と出典付きの企業情報を根拠として回答を生成します。
 
-対話型の自己分析CLI:
-
-```powershell
-npm.cmd run self-analysis
-```
-
-会話中のコマンド:
-
-- `/card`: 現在の会話から本人確認前の経験カード案を作る
-- `/quit`: 終了する
-
-実機テスト:
+## ローカルでの起動
 
 ```powershell
-npm.cmd run typecheck
-npm.cmd run test:self-analysis-ai
-npm.cmd run test:career-ai
+npm.cmd install
+Copy-Item .env.example .env
+npm.cmd run prisma:generate
+npm.cmd run db:migrate:deploy
+npm.cmd run dev
 ```
 
-AI Adapterは[`src/infrastructure/ai`](./src/infrastructure/ai/)にあり、Web実装時はRoute Handlerから直接プロンプトを呼ばず、`LmStudioPolarisAiGateway`をApplication Service経由で利用します。
+PostgreSQLとLM Studioを起動し、`.env`へ接続情報とGoogle OAuthの認証情報を設定してください。詳しい構成や仕様は[設計ドキュメント](./docs/README.md)を参照してください。
+
+## Tech Stack
+
+### Frontend
+
+<p>
+  <img src="https://skillicons.dev/icons?i=ts,nextjs,react,materialui" alt="TypeScript, Next.js, React, Material UI" />
+</p>
+
+### Backend / AI
+
+<p>
+  <img src="https://skillicons.dev/icons?i=nodejs,prisma,postgres" alt="Node.js, Prisma, PostgreSQL" />
+  &nbsp;
+  <img src="https://img.shields.io/badge/LM_Studio-151515?style=for-the-badge&logo=lmstudio&logoColor=white" alt="LM Studio" />
+</p>

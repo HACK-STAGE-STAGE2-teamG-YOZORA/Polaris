@@ -1,21 +1,61 @@
 import { Chat, LMStudioClient } from "@lmstudio/sdk";
 import { loadPolarisAiConfig } from "./config.ts";
 import {
+  fitInputByDropping,
+  promptFitsBudget,
+  relevanceScore,
+  splitTextForBudget,
+  type AiPromptBudget,
+} from './context-budget.ts';
+import {
   buildChatTurnPrompt,
+  buildCompanyFactsPrompt,
+  buildInterviewQuestionsPrompt,
   buildExperienceDraftPrompt,
   buildExperienceGroundingPrompt,
   buildEsAnalysisPrompt,
   buildEsRevisionPrompt,
-  buildHypothesesPrompt,
+  buildAxisAssessmentsPrompt,
+  buildOverallSelfAnalysisPrompt,
+  buildSelfAnalysisReportPrompt,
 } from "./prompts.ts";
 import {
+  filterAndRecoverMessageQuotes,
   recoverExactQuote,
   verifyAndRecoverMessageQuotes,
 } from "./quotes.ts";
 import { loadAiSchema } from "./schema.ts";
+import {
+  OVERALL_SELF_ANALYSIS_AXES,
+  stabilizeOverallSelfAnalysisCandidate,
+} from "./overall-output.ts";
+import { stabilizeAxisAssessmentsCandidate } from "./axis-output.ts";
+import { stabilizeSelfAnalysisReportCandidate } from "./report-output.ts";
+import {
+  stabilizeExperienceDraftCandidate,
+  stabilizeExperienceGroundingCandidate,
+} from './experience-output.ts';
+import {
+  stabilizeEsAnalysisCandidate,
+  stabilizeEsRevisionCandidate,
+} from './es-output.ts';
+import { stabilizeChatTurnCandidate } from './chat-output.ts';
+import {
+  hasBalancedRecommendationSlots,
+  stabilizeCompanyRecommendationsCandidate,
+} from './recommendation-output.ts';
+import { stabilizeCompanyFactsCandidate } from './company-facts-output.ts';
+import { fitCompanyRecommendationsInput } from './recommendation-input.ts';
+import { stabilizeInterviewQuestionsCandidate } from './interview-output.ts';
 import type {
   ChatTurnInput,
   ChatTurnOutput,
+  CompanyFactsInput,
+  CompanyFactsOutput,
+  CompanyRecommendationsInput,
+  CompanyRecommendationsOutput,
+  InterviewQuestionsInput,
+  InterviewQuestionsOutput,
   ExperienceDraftInput,
   ExperienceDraftOutput,
   ExperienceGroundingField,
@@ -24,9 +64,13 @@ import type {
   EsAnalysisOutput,
   EsRevisionInput,
   EsRevisionOutput,
-  HypothesesInput,
-  HypothesesOutput,
+  AxisAssessmentsInput,
+  AxisAssessmentsOutput,
+  OverallSelfAnalysisInput,
+  OverallSelfAnalysisOutput,
   PolarisAiConfig,
+  SelfAnalysisReportInput,
+  SelfAnalysisReportOutput,
 } from "./types.ts";
 
 type StructuredTaskOptions<T> = {
@@ -35,21 +79,27 @@ type StructuredTaskOptions<T> = {
   userPrompt: string;
   temperature: number;
   maxTokens: number;
+  timeoutMs: number;
   beforeValidation?: (output: unknown) => void;
   afterValidation?: (output: T) => void;
+  customizeGenerationSchema?: (schema: Record<string, any>) => void;
 };
 
 export class PolarisAiError extends Error {
   readonly code:
     | "AI_UNAVAILABLE"
+    | "AI_TIMEOUT"
     | "AI_INVALID_OUTPUT"
-    | "AI_REQUEST_FAILED";
+    | "AI_REQUEST_FAILED"
+    | "AI_INPUT_TOO_LARGE";
 
   constructor(
     code:
       | "AI_UNAVAILABLE"
+      | "AI_TIMEOUT"
       | "AI_INVALID_OUTPUT"
-      | "AI_REQUEST_FAILED",
+      | "AI_REQUEST_FAILED"
+      | "AI_INPUT_TOO_LARGE",
     message: string,
     options?: ErrorOptions,
   ) {
@@ -70,8 +120,22 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     });
   }
 
+  #promptBudget(maxOutputTokens: number): AiPromptBudget {
+    return {
+      contextLength: this.#config.contextLength,
+      maxOutputTokens,
+      schemaReserveTokens: this.#config.schemaReserveTokens,
+      estimatedCharsPerToken: this.#config.estimatedCharsPerToken,
+    };
+  }
+
   async createChatTurn(input: ChatTurnInput): Promise<ChatTurnOutput> {
-    const prompt = buildChatTurnPrompt(input);
+    const { prompt } = fitInputByDropping(
+      input,
+      buildChatTurnPrompt,
+      this.#promptBudget(this.#config.chatMaxTokens),
+      [(candidate) => candidate.messages.length > 1 ? Boolean(candidate.messages.shift()) : false],
+    );
 
     return this.#runStructuredTask<ChatTurnOutput>({
       schemaFileName: "chat-turn-output.schema.json",
@@ -79,6 +143,10 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.chatTemperature,
       maxTokens: this.#config.chatMaxTokens,
+      timeoutMs: this.#config.chatTimeoutMs,
+      beforeValidation: (value) => {
+        stabilizeChatTurnCandidate(value, input);
+      },
       afterValidation: (output) => {
         const questionMarks = [...output.reply.matchAll(/[？?]/gu)].length;
 
@@ -88,7 +156,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
           );
         }
 
-        verifyAndRecoverMessageQuotes(
+        output.evidenceCandidates = filterAndRecoverMessageQuotes(
           output.evidenceCandidates,
           input.messages,
         );
@@ -99,7 +167,14 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
   async extractExperience(
     input: ExperienceDraftInput,
   ): Promise<ExperienceDraftOutput> {
-    const prompt = buildExperienceDraftPrompt(input);
+    const budgeted = fitInputByDropping(
+      input,
+      buildExperienceDraftPrompt,
+      this.#promptBudget(this.#config.taskMaxTokens),
+      [(candidate) => candidate.messages.length > 1 ? Boolean(candidate.messages.shift()) : false],
+    );
+    const prompt = budgeted.prompt;
+    const deadline = Date.now() + this.#config.taskTimeoutMs;
 
     const draft = await this.#runStructuredTask<ExperienceDraftOutput>({
       schemaFileName: "experience-draft-output.schema.json",
@@ -107,21 +182,9 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: Math.max(1, deadline - Date.now()),
       beforeValidation: (value) => {
-        if (
-          value &&
-          typeof value === "object" &&
-          Array.isArray((value as { hypotheses?: unknown }).hypotheses)
-        ) {
-          const object = value as {
-            hypotheses: Array<{ statement?: unknown }>;
-          };
-          object.hypotheses = object.hypotheses.filter(
-            (hypothesis) =>
-              typeof hypothesis.statement === "string" &&
-              hypothesis.statement.trim() !== "",
-          );
-        }
+        stabilizeExperienceDraftCandidate(value, budgeted.input);
       },
       afterValidation: (output) => {
         if (output.type !== input.requestedType) {
@@ -158,10 +221,13 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       },
     });
 
-    const groundingPrompt = buildExperienceGroundingPrompt({
-      messages: input.messages,
-      draft,
-    });
+    const groundingInput = { messages: budgeted.input.messages, draft };
+    const groundingPrompt = fitInputByDropping(
+      groundingInput,
+      buildExperienceGroundingPrompt,
+      this.#promptBudget(Math.min(this.#config.taskMaxTokens, 2000)),
+      [(candidate) => candidate.messages.length > 1 ? Boolean(candidate.messages.shift()) : false],
+    ).prompt;
     const expectedFields: ExperienceGroundingField[] = [
       "goal",
       "options",
@@ -175,6 +241,10 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: groundingPrompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: Math.min(this.#config.taskMaxTokens, 2000),
+      timeoutMs: Math.max(1, deadline - Date.now()),
+      beforeValidation: (value) => {
+        stabilizeExperienceGroundingCandidate(value, budgeted.input.messages);
+      },
       afterValidation: (output) => {
         const actualFields = output.assessments.map(
           (assessment) => assessment.field,
@@ -236,57 +306,454 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     return draft;
   }
 
-  async generateHypotheses(
-    input: HypothesesInput,
-  ): Promise<HypothesesOutput> {
-    const prompt = buildHypothesesPrompt(input);
+  async generateAxisAssessments(
+    input: AxisAssessmentsInput,
+  ): Promise<AxisAssessmentsOutput> {
+    const budgeted = fitInputByDropping(
+      input,
+      buildAxisAssessmentsPrompt,
+      this.#promptBudget(this.#config.taskMaxTokens),
+      [
+        (candidate) => candidate.previousAssessments.length > 0 ? Boolean(candidate.previousAssessments.shift()) : false,
+        (candidate) => candidate.confirmedExperiences.length > 0 ? Boolean(candidate.confirmedExperiences.shift()) : false,
+        (candidate) => candidate.evidenceItems.length > 0 ? Boolean(candidate.evidenceItems.shift()) : false,
+      ],
+    );
+    const prompt = budgeted.prompt;
     const evidenceById = new Map(
       input.evidenceItems.map((evidence) => [evidence.id, evidence]),
     );
 
-    return this.#runStructuredTask<HypothesesOutput>({
+    return this.#runStructuredTask<AxisAssessmentsOutput>({
       schemaFileName: "hypotheses-output.schema.json",
       systemPrompt: prompt.system,
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
-      afterValidation: (output) => {
-        for (const hypothesis of output.hypotheses) {
-          const supporting = new Set(hypothesis.supportingEvidenceIds);
+      timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        const allowedEvidenceIds = budgeted.input.evidenceItems.map((item) => item.id);
+        if (allowedEvidenceIds.length === 0) return;
 
-          for (const evidenceId of [
-            ...hypothesis.supportingEvidenceIds,
-            ...hypothesis.counterEvidenceIds,
-          ]) {
+        const properties = schema.properties.assessments.items.properties;
+        for (const field of [
+          "leftEvidenceIds",
+          "rightEvidenceIds",
+          "bothEvidenceIds",
+          "contextEvidenceIds",
+          "counterEvidenceIds",
+        ]) {
+          properties[field].items.enum = allowedEvidenceIds;
+        }
+      },
+      beforeValidation: (output) => {
+        stabilizeAxisAssessmentsCandidate(output, budgeted.input);
+      },
+      afterValidation: (output) => {
+        const axes = output.assessments.map((assessment) => assessment.axis);
+        const outputAxes = new Set(axes);
+        if (
+          outputAxes.size !== OVERALL_SELF_ANALYSIS_AXES.length
+          || OVERALL_SELF_ANALYSIS_AXES.some((axis) => !outputAxes.has(axis))
+        ) {
+          throw new Error("同じ軸の分析を複数返せません。");
+        }
+
+        for (const assessment of output.assessments) {
+          const referencedIds = new Set([
+            ...assessment.leftEvidenceIds,
+            ...assessment.rightEvidenceIds,
+            ...assessment.bothEvidenceIds,
+            ...assessment.contextEvidenceIds,
+            ...assessment.counterEvidenceIds,
+          ]);
+          const normalized = {
+            left: [] as string[],
+            right: [] as string[],
+            both: [] as string[],
+            context: [] as string[],
+            counter: [] as string[],
+          };
+
+          for (const evidenceId of referencedIds) {
             const evidence = evidenceById.get(evidenceId);
 
             if (!evidence) {
               throw new Error(`存在しない根拠IDです: ${evidenceId}`);
             }
 
-            if (evidence.category !== hypothesis.category) {
+            if (evidence.axis !== assessment.axis) {
               throw new Error(
-                `仮説と根拠のcategoryが一致しません: ${evidenceId}`,
+                `軸分析と根拠のaxisが一致しません: ${evidenceId}`,
               );
+            }
+
+            if (evidence.supportType === "COUNTER") {
+              normalized.counter.push(evidenceId);
+            } else if (evidence.pole === "LEFT") {
+              normalized.left.push(evidenceId);
+            } else if (evidence.pole === "RIGHT") {
+              normalized.right.push(evidenceId);
+            } else if (evidence.pole === "BOTH") {
+              normalized.both.push(evidenceId);
+            } else if (evidence.pole === "CONTEXT_DEPENDENT") {
+              normalized.context.push(evidenceId);
             }
           }
 
-          if (
-            hypothesis.counterEvidenceIds.some((id) => supporting.has(id))
-          ) {
-            throw new Error("同じ根拠を支持と反証の両方に使えません。");
-          }
+          assessment.leftEvidenceIds = normalized.left;
+          assessment.rightEvidenceIds = normalized.right;
+          assessment.bothEvidenceIds = normalized.both;
+          assessment.contextEvidenceIds = normalized.context;
+          assessment.counterEvidenceIds = normalized.counter;
+        }
+      },
+    });
+  }
 
-          if (hypothesis.counterEvidenceIds.length === 0) {
-            hypothesis.riskConditions = [];
+  async writeSelfAnalysisReport(
+    input: SelfAnalysisReportInput,
+  ): Promise<SelfAnalysisReportOutput> {
+    const budgeted = fitInputByDropping(
+      input,
+      buildSelfAnalysisReportPrompt,
+      this.#promptBudget(this.#config.taskMaxTokens),
+      [(candidate) => candidate.confirmedExperiences.length > 0 ? Boolean(candidate.confirmedExperiences.shift()) : false],
+    );
+    const prompt = budgeted.prompt;
+    const assessmentIds = new Set(input.axisAssessments.map((item) => item.id));
+
+    return this.#runStructuredTask<SelfAnalysisReportOutput>({
+      schemaFileName: "career-report-output.schema.json",
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        const allowedAssessmentIds = [...assessmentIds];
+        schema.properties.axisComments.items.properties.axisAssessmentId.enum = allowedAssessmentIds;
+        schema.$defs.condition.properties.axisAssessmentIds.items.enum = allowedAssessmentIds;
+      },
+      beforeValidation: (output) => {
+        stabilizeSelfAnalysisReportCandidate(output, budgeted.input);
+      },
+      afterValidation: (output) => {
+        if (new Set(output.axisComments.map((item) => item.axisAssessmentId)).size !== output.axisComments.length) {
+          throw new Error('同じ4軸分析へのコメントが重複しています。');
+        }
+        const referencedIds = [
+          ...output.axisComments.map((item) => item.axisAssessmentId),
+          ...output.mustConditions.flatMap((item) => item.axisAssessmentIds),
+          ...output.preferConditions.flatMap((item) => item.axisAssessmentIds),
+          ...output.avoidConditions.flatMap((item) => item.axisAssessmentIds),
+          ...output.verifyConditions.flatMap((item) => item.axisAssessmentIds),
+        ];
+        for (const id of referencedIds) {
+          if (!assessmentIds.has(id)) {
+            throw new Error(`存在しない4軸分析IDです: ${id}`);
+          }
+        }
+        for (const comment of output.axisComments) {
+          const assessment = input.axisAssessments.find((item) => item.id === comment.axisAssessmentId);
+          if (!assessment || assessment.axis !== comment.axis) {
+            throw new Error(`軸コメントのaxisとaxisAssessmentIdが一致しません: ${comment.axisAssessmentId}`);
           }
         }
       },
     });
   }
 
+  async generateOverallSelfAnalysis(
+    input: OverallSelfAnalysisInput,
+  ): Promise<OverallSelfAnalysisOutput> {
+    const budgeted = fitInputByDropping(
+      input,
+      buildOverallSelfAnalysisPrompt,
+      this.#promptBudget(this.#config.taskMaxTokens),
+      [
+        (candidate) => candidate.sourceUserQuotes.length > 0 ? Boolean(candidate.sourceUserQuotes.shift()) : false,
+        (candidate) => candidate.confirmedExperiences.length > 0 ? Boolean(candidate.confirmedExperiences.shift()) : false,
+        (candidate) => candidate.evidenceItems.length > 0 ? Boolean(candidate.evidenceItems.shift()) : false,
+        (candidate) => candidate.completedSessionReports.length > 1 ? Boolean(candidate.completedSessionReports.shift()) : false,
+      ],
+    );
+    const prompt = budgeted.prompt;
+    const reportById = new Map(input.completedSessionReports.map((report) => [report.id, report]));
+    const reportIds = new Set(reportById.keys());
+    const evidenceById = new Map(input.evidenceItems.map((evidence) => [evidence.id, evidence]));
+    const evidenceIds = new Set(evidenceById.keys());
+
+    return this.#runStructuredTask<OverallSelfAnalysisOutput>({
+      schemaFileName: "overall-self-analysis-output.schema.json",
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        const trendProperties = schema.properties.axisTrends.items.properties;
+        const insightProperties = schema.$defs.profileInsight.properties;
+        const allowedReportIds = budgeted.input.completedSessionReports.map((report) => report.id);
+        const allowedEvidenceIds = budgeted.input.evidenceItems.map((evidence) => evidence.id);
+
+        if (allowedReportIds.length > 0) {
+          trendProperties.sourceReportIds.items.enum = allowedReportIds;
+          insightProperties.sourceReportIds.items.enum = allowedReportIds;
+        }
+        if (allowedEvidenceIds.length > 0) {
+          trendProperties.evidenceIds.items.enum = allowedEvidenceIds;
+          insightProperties.evidenceIds.items.enum = allowedEvidenceIds;
+        }
+      },
+      beforeValidation: (output) => {
+        stabilizeOverallSelfAnalysisCandidate(output, budgeted.input);
+      },
+      afterValidation: (output) => {
+        const outputAxes = new Set(output.axisTrends.map((item) => item.axis));
+        if (
+          outputAxes.size !== OVERALL_SELF_ANALYSIS_AXES.length
+          || OVERALL_SELF_ANALYSIS_AXES.some((axis) => !outputAxes.has(axis))
+        ) {
+          throw new Error('総合4軸のaxisが重複しています。');
+        }
+        for (const id of [
+          ...output.axisTrends.flatMap((item) => item.sourceReportIds),
+          ...output.strengths.flatMap((item) => item.sourceReportIds),
+          ...output.weaknesses.flatMap((item) => item.sourceReportIds),
+        ]) {
+          if (!reportIds.has(id)) throw new Error(`存在しないレポートIDです: ${id}`);
+        }
+        for (const id of [
+          ...output.axisTrends.flatMap((item) => item.evidenceIds),
+          ...output.strengths.flatMap((item) => item.evidenceIds),
+          ...output.weaknesses.flatMap((item) => item.evidenceIds),
+        ]) {
+          if (!evidenceIds.has(id)) throw new Error(`存在しない根拠IDです: ${id}`);
+        }
+        for (const trend of output.axisTrends) {
+          for (const id of trend.sourceReportIds) {
+            if (!reportById.get(id)?.axes.some((item) => item.axis === trend.axis)) {
+              throw new Error(`総合4軸のaxisと参照レポートIDが一致しません: ${id}`);
+            }
+          }
+          for (const id of trend.evidenceIds) {
+            if (evidenceById.get(id)?.axis !== trend.axis) {
+              throw new Error(`総合4軸のaxisと根拠IDが一致しません: ${id}`);
+            }
+            if (!trend.sourceReportIds.some((reportId) => reportById.get(reportId)?.axes.some(
+              (item) => item.axis === trend.axis && item.evidenceIds.includes(id),
+            ))) {
+              throw new Error(`総合4軸の根拠IDが参照レポートに接続していません: ${id}`);
+            }
+          }
+        }
+        for (const insight of [...output.strengths, ...output.weaknesses]) {
+          for (const id of insight.evidenceIds) {
+            const axis = evidenceById.get(id)?.axis;
+            if (!axis || !insight.axes.includes(axis)) {
+              throw new Error(`強み・弱みのaxisと根拠IDが一致しません: ${id}`);
+            }
+            if (!insight.sourceReportIds.some((reportId) => reportById.get(reportId)?.axes.some(
+              (item) => insight.axes.includes(item.axis) && item.evidenceIds.includes(id),
+            ))) {
+              throw new Error(`強み・弱みの根拠IDが参照レポートに接続していません: ${id}`);
+            }
+          }
+        }
+      },
+    });
+  }
+
+  async extractCompanyFacts(input: CompanyFactsInput): Promise<CompanyFactsOutput> {
+    const emptyPrompt = buildCompanyFactsPrompt({
+      ...input,
+      source: { ...input.source, text: '' },
+    });
+    const fixedCharacters = [...`${emptyPrompt.system}\n${emptyPrompt.user}`].length;
+    const availableCharacters = Math.max(
+      1_000,
+      Math.floor(
+        (this.#config.contextLength - this.#config.taskMaxTokens - this.#config.schemaReserveTokens)
+        * this.#config.estimatedCharsPerToken,
+      ) - fixedCharacters,
+    );
+    const chunks = splitTextForBudget(input.source.text, availableCharacters);
+    const merged: CompanyFactsOutput = { facts: [], unknownItems: [] };
+
+    for (const chunk of chunks) {
+      const chunkInput = { ...input, source: { ...input.source, text: chunk } };
+      const prompt = buildCompanyFactsPrompt(chunkInput);
+      const output = await this.#runStructuredTask<CompanyFactsOutput>({
+        schemaFileName: "company-facts-output.schema.json",
+        systemPrompt: prompt.system,
+        userPrompt: prompt.user,
+        temperature: this.#config.structuredTemperature,
+        maxTokens: this.#config.taskMaxTokens,
+        timeoutMs: this.#config.taskTimeoutMs,
+        beforeValidation: (value) => {
+          stabilizeCompanyFactsCandidate(value, chunkInput);
+        },
+        afterValidation: (value) => {
+          for (const fact of value.facts) {
+            const exact = recoverExactQuote(chunk, fact.evidenceQuote);
+            if (!exact) throw new Error('企業情報本文に存在しない引用です。');
+            fact.evidenceQuote = exact;
+          }
+        },
+      });
+      merged.facts.push(...output.facts);
+      merged.unknownItems.push(...output.unknownItems);
+    }
+
+    merged.facts = merged.facts.filter((fact, index, items) => items.findIndex((candidate) => (
+      candidate.category === fact.category
+      && candidate.fact === fact.fact
+      && candidate.evidenceQuote === fact.evidenceQuote
+    )) === index);
+    merged.unknownItems = [...new Set(merged.unknownItems)];
+    return merged;
+  }
+
+  async recommendCompanies(input: CompanyRecommendationsInput): Promise<CompanyRecommendationsOutput> {
+    const budgeted = fitCompanyRecommendationsInput(
+      input,
+      this.#promptBudget(this.#config.taskMaxTokens),
+    );
+    const prompt = budgeted.prompt;
+    const companyById = new Map(budgeted.input.companies.map((company) => [company.id, company]));
+    const experienceIds = new Set(budgeted.input.confirmedExperiences.map((experience) => experience.id));
+
+    return this.#runStructuredTask<CompanyRecommendationsOutput>({
+      schemaFileName: 'company-recommendations-output.schema.json',
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        const recommendationProperties = schema.properties.recommendations.items.properties;
+        const excludedProperties = schema.properties.excludedCompanies.items.properties;
+        const companyIds = budgeted.input.companies.map((company) => company.id);
+        recommendationProperties.companyId.enum = companyIds;
+        excludedProperties.companyId.enum = companyIds;
+        recommendationProperties.connectedExperienceIds.items.enum = [...experienceIds];
+        recommendationProperties.companySourceIds.items.enum = budgeted.input.companies.flatMap(
+          (company) => company.sources.map((source) => source.id),
+        );
+      },
+      beforeValidation: (output) => {
+        stabilizeCompanyRecommendationsCandidate(output, budgeted.input);
+      },
+      afterValidation: (output) => {
+        const recommendationCompanyIds = output.recommendations.map((item) => item.companyId);
+        if (new Set(recommendationCompanyIds).size !== recommendationCompanyIds.length) {
+          throw new Error('同じ企業を複数提案できません。');
+        }
+        const excludedCompanyIds = output.excludedCompanies.map((item) => item.companyId);
+        if (new Set(excludedCompanyIds).size !== excludedCompanyIds.length) {
+          throw new Error('同じ企業を複数回除外できません。');
+        }
+        if (excludedCompanyIds.some((id) => recommendationCompanyIds.includes(id))) {
+          throw new Error('同じ企業を提案と除外の両方へ含めることはできません。');
+        }
+        if (!hasBalancedRecommendationSlots(output.recommendations)) {
+          throw new Error('企業提案が同一枠へ偏っています。本命・挑戦・意外の枠を分散してください。');
+        }
+        for (const recommendation of output.recommendations) {
+          const company = companyById.get(recommendation.companyId);
+          if (!company) throw new Error(`候補外の企業IDです: ${recommendation.companyId}`);
+          if (recommendation.connectedExperienceIds.some((id) => !experienceIds.has(id))) {
+            throw new Error(`未確認または存在しない経験IDが含まれます: ${recommendation.companyId}`);
+          }
+          const sourceIds = new Set(company.sources.map((source) => source.id));
+          if (recommendation.companySourceIds.some((id) => !sourceIds.has(id))) {
+            throw new Error(`企業に属さない出典IDが含まれます: ${recommendation.companyId}`);
+          }
+        }
+        for (const excluded of output.excludedCompanies) {
+          if (!companyById.has(excluded.companyId)) {
+            throw new Error(`候補外の除外企業IDです: ${excluded.companyId}`);
+          }
+        }
+      },
+    });
+  }
+
+  async generateInterviewQuestions(input: InterviewQuestionsInput): Promise<InterviewQuestionsOutput> {
+    const query = [
+      input.targetRole,
+      input.esDocument?.question,
+      input.esDocument?.text,
+      input.selfAnalysisReport.summary,
+    ].filter(Boolean).join('\n');
+    const prepared = structuredClone(input);
+    prepared.confirmedExperiences.sort(
+      (left, right) => relevanceScore(query, left) - relevanceScore(query, right),
+    );
+    prepared.company?.sources.forEach((source) => {
+      source.facts.sort((left, right) => relevanceScore(query, left) - relevanceScore(query, right));
+    });
+    const budgeted = fitInputByDropping(
+      prepared,
+      buildInterviewQuestionsPrompt,
+      this.#promptBudget(this.#config.taskMaxTokens),
+      [
+        (candidate) => {
+          const source = candidate.company?.sources.find((item) => item.facts.length > 1);
+          return source ? Boolean(source.facts.shift()) : false;
+        },
+        (candidate) => candidate.company !== null && candidate.company.sources.length > 1
+          ? Boolean(candidate.company.sources.shift())
+          : false,
+        (candidate) => candidate.confirmedExperiences.length > 1
+          ? Boolean(candidate.confirmedExperiences.shift())
+          : false,
+      ],
+    );
+    const prompt = budgeted.prompt;
+    const experienceIds = budgeted.input.confirmedExperiences.map((experience) => experience.id);
+    const sourceIds = budgeted.input.company?.sources.map((source) => source.id) ?? [];
+
+    return this.#runStructuredTask<InterviewQuestionsOutput>({
+      schemaFileName: 'interview-questions-output.schema.json',
+      systemPrompt: prompt.system,
+      userPrompt: prompt.user,
+      temperature: this.#config.structuredTemperature,
+      maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.taskTimeoutMs,
+      customizeGenerationSchema: (schema) => {
+        schema.properties.deepDiveQuestions.items.properties.connectedExperienceIds.items.enum = experienceIds;
+        schema.properties.reverseQuestions.items.properties.companySourceIds.items.enum = sourceIds;
+      },
+      beforeValidation: (output) => {
+        stabilizeInterviewQuestionsCandidate(output, budgeted.input);
+      },
+    });
+  }
+
   async analyzeEs(input: EsAnalysisInput): Promise<EsAnalysisOutput> {
-    const prompt = buildEsAnalysisPrompt(input);
+    const prepared = structuredClone(input);
+    const relevanceQuery = `${input.question}\n${input.text}`;
+    const preferredIds = new Set(input.preferredExperienceIds);
+    prepared.allConfirmedExperiences.sort((left, right) => (
+      relevanceScore(relevanceQuery, left) + (preferredIds.has(left.id) ? 1_000_000 : 0)
+      - relevanceScore(relevanceQuery, right) - (preferredIds.has(right.id) ? 1_000_000 : 0)
+    ));
+    prepared.allowedCompanyFacts.sort((left, right) => relevanceScore(relevanceQuery, left) - relevanceScore(relevanceQuery, right));
+    prepared.allSessionReports.sort((left, right) => relevanceScore(relevanceQuery, left) - relevanceScore(relevanceQuery, right));
+    const budgeted = fitInputByDropping(
+      prepared,
+      buildEsAnalysisPrompt,
+      this.#promptBudget(this.#config.taskMaxTokens),
+      [
+        (candidate) => candidate.allSessionReports.length > 0 ? Boolean(candidate.allSessionReports.shift()) : false,
+        (candidate) => candidate.overallSelfAnalysisProfile ? (delete candidate.overallSelfAnalysisProfile) : false,
+        (candidate) => candidate.allowedCompanyFacts.length > 0 ? Boolean(candidate.allowedCompanyFacts.shift()) : false,
+        (candidate) => candidate.allConfirmedExperiences.length > 0 ? Boolean(candidate.allConfirmedExperiences.shift()) : false,
+      ],
+    );
+    const prompt = budgeted.prompt;
 
     return this.#runStructuredTask<EsAnalysisOutput>({
       schemaFileName: "es-analysis-output.schema.json",
@@ -294,6 +761,10 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: this.#config.structuredTemperature,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.esTimeoutMs,
+      beforeValidation: (value) => {
+        stabilizeEsAnalysisCandidate(value, budgeted.input);
+      },
       afterValidation: (output) => {
         for (const claim of output.claims) {
           this.#verifySourceEvidence(claim.evidence, input);
@@ -316,7 +787,27 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
   }
 
   async reviseEs(input: EsRevisionInput): Promise<EsRevisionOutput> {
-    const prompt = buildEsRevisionPrompt(input);
+    const prepared = structuredClone(input);
+    const relevanceQuery = `${input.question}\n${input.text}`;
+    const preferredIds = new Set(input.preferredExperienceIds);
+    prepared.allConfirmedExperiences.sort((left, right) => (
+      relevanceScore(relevanceQuery, left) + (preferredIds.has(left.id) ? 1_000_000 : 0)
+      - relevanceScore(relevanceQuery, right) - (preferredIds.has(right.id) ? 1_000_000 : 0)
+    ));
+    prepared.allowedCompanyFacts.sort((left, right) => relevanceScore(relevanceQuery, left) - relevanceScore(relevanceQuery, right));
+    prepared.allSessionReports.sort((left, right) => relevanceScore(relevanceQuery, left) - relevanceScore(relevanceQuery, right));
+    const budgeted = fitInputByDropping(
+      prepared,
+      buildEsRevisionPrompt,
+      this.#promptBudget(this.#config.taskMaxTokens),
+      [
+        (candidate) => candidate.allSessionReports.length > 0 ? Boolean(candidate.allSessionReports.shift()) : false,
+        (candidate) => candidate.overallSelfAnalysisProfile ? (delete candidate.overallSelfAnalysisProfile) : false,
+        (candidate) => candidate.allowedCompanyFacts.length > 0 ? Boolean(candidate.allowedCompanyFacts.shift()) : false,
+        (candidate) => candidate.allConfirmedExperiences.length > 0 ? Boolean(candidate.allConfirmedExperiences.shift()) : false,
+      ],
+    );
+    const prompt = budgeted.prompt;
 
     return this.#runStructuredTask<EsRevisionOutput>({
       schemaFileName: "es-revision-output.schema.json",
@@ -324,6 +815,10 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       userPrompt: prompt.user,
       temperature: 0.3,
       maxTokens: this.#config.taskMaxTokens,
+      timeoutMs: this.#config.esTimeoutMs,
+      beforeValidation: (value) => {
+        stabilizeEsRevisionCandidate(value, budgeted.input);
+      },
       afterValidation: (output) => {
         for (const change of output.changes) {
           this.#verifySourceEvidence(change.evidence, input);
@@ -341,9 +836,11 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       question: input.question,
       characterLimit: input.characterLimit,
       text: revision.revisedText,
-      allowedExperiences: input.allowedExperiences,
+      allConfirmedExperiences: input.allConfirmedExperiences,
       allowedCompanyFacts: input.allowedCompanyFacts,
-      confirmedHypothesesForVoice: input.confirmedHypothesesForVoice,
+      allSessionReports: input.allSessionReports,
+      ...(input.overallSelfAnalysisProfile ? { overallSelfAnalysisProfile: input.overallSelfAnalysisProfile } : {}),
+      preferredExperienceIds: input.preferredExperienceIds,
     });
 
     return { revision, verification };
@@ -361,7 +858,7 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
       let sourceTexts: string[] | undefined;
 
       if (evidence.sourceType === "EXPERIENCE") {
-        const experience = input.allowedExperiences.find(
+        const experience = input.allConfirmedExperiences.find(
           (experience) => experience.id === evidence.sourceId,
         );
         sourceTexts = experience
@@ -398,6 +895,25 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     options: StructuredTaskOptions<T>,
   ): Promise<T> {
     const schema = await loadAiSchema<T>(options.schemaFileName);
+    const generationSchema = options.customizeGenerationSchema
+      ? structuredClone(schema.generationSchema)
+      : schema.generationSchema;
+    options.customizeGenerationSchema?.(generationSchema);
+    const exactBudget = {
+      ...this.#promptBudget(options.maxTokens),
+      schemaReserveTokens: 256,
+    };
+    if (!promptFitsBudget(
+      { system: options.systemPrompt, user: options.userPrompt },
+      exactBudget,
+      JSON.stringify(generationSchema),
+    )) {
+      throw new PolarisAiError(
+        'AI_INPUT_TOO_LARGE',
+        'AIへ渡す情報量がコンテキスト上限を超えています。入力を短くするか、関連する経験を指定してください。',
+      );
+    }
+    const timeoutSignal = AbortSignal.timeout(options.timeoutMs);
 
     let model;
 
@@ -412,7 +928,6 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
     }
 
     let validationError: unknown;
-    let previousOutput = "";
 
     for (
       let attempt = 0;
@@ -426,12 +941,8 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
           ? []
           : [
               {
-                role: "assistant" as const,
-                content: previousOutput,
-              },
-              {
                 role: "user" as const,
-                content: `直前の出力は検証に失敗しました。次のエラーだけを修正し、同じJSON Schemaに適合するJSONオブジェクトだけを再出力してください。\n${String(validationError)}`,
+                content: '直前の出力は検証に失敗しました。同じ入力を見直し、JSON Schemaに適合するJSONオブジェクトだけを再出力してください。',
               },
             ]),
       ]);
@@ -440,19 +951,29 @@ export class LmStudioPolarisAiGateway implements AsyncDisposable {
         const result = await model.respond(chat, {
           structured: {
             type: "json",
-            jsonSchema: schema.generationSchema,
+            jsonSchema: generationSchema,
           },
           temperature: options.temperature,
           maxTokens: options.maxTokens,
+          signal: timeoutSignal,
         });
 
-        previousOutput = result.content;
         const parsed: unknown = JSON.parse(result.content);
         options.beforeValidation?.(parsed);
         const output = schema.validateStrict(parsed);
         options.afterValidation?.(output);
         return output;
       } catch (error) {
+        if (timeoutSignal.aborted) {
+          throw new PolarisAiError(
+            "AI_TIMEOUT",
+            `AI処理が制限時間（${options.timeoutMs}ms）を超えました。入力を保持したまま再試行してください。`,
+            { cause: error },
+          );
+        }
+        console.warn(
+          `AI構造化出力の検証に失敗しました（${options.schemaFileName}、${attempt + 1}/${this.#config.repairAttempts + 1}）。`,
+        );
         validationError = error;
       }
     }

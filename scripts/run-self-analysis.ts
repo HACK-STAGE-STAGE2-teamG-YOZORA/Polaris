@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { LmStudioPolarisAiGateway } from "../src/infrastructure/ai/lm-studio-ai-gateway.ts";
+import {
+  LmStudioPolarisAiGateway,
+  PolarisAiError,
+} from "../src/infrastructure/ai/lm-studio-ai-gateway.ts";
 import type {
   ConversationMessage,
   ExperienceType,
-  HypothesisCategory,
+  SelfAnalysisAxis,
 } from "../src/infrastructure/ai/types.ts";
 
 const experienceTypes: Array<{
@@ -20,11 +23,11 @@ const experienceTypes: Array<{
   { value: "OTHER", label: "その他の印象的な経験" },
 ];
 
-const focusAreas: HypothesisCategory[] = [
-  "CAN",
-  "WANT",
-  "ENERGY",
-  "CONTEXT",
+const targetAxes: SelfAnalysisAxis[] = [
+  "ENERGY_SOURCE",
+  "ACTION_STYLE",
+  "SATISFACTION_SOURCE",
+  "PREFERRED_ENVIRONMENT",
 ];
 
 const terminal = createInterface({ input, output });
@@ -34,6 +37,19 @@ function printExperienceTypeMenu(): void {
   for (const [index, experienceType] of experienceTypes.entries()) {
     console.log(`${index + 1}. ${experienceType.label}`);
   }
+}
+
+function printRecoverableError(error: unknown, operation: string): void {
+  if (error instanceof PolarisAiError) {
+    console.log(`\nAI: ${operation}に失敗しました。`);
+    console.log(`理由: ${error.message}`);
+  } else {
+    console.log(`\nAI: ${operation}中に予期しないエラーが発生しました。`);
+  }
+
+  console.log(
+    "会話内容は保持されています。/retryで再試行、/cardで現在の経験カード作成、/quitで終了できます。\n",
+  );
 }
 
 try {
@@ -54,11 +70,13 @@ try {
   console.log(
     "\n印象に残っている出来事を、まずは自由に話してください。",
   );
-  console.log("経験カードを作る: /card　終了: /quit\n");
+  console.log(
+    "経験カードを作る: /card　直前のAI応答を再試行: /retry　終了: /quit\n",
+  );
 
   const sessionId = randomUUID();
   const messages: ConversationMessage[] = [];
-  let missingAreas = [...focusAreas];
+  let missingAxes = [...targetAxes];
   let experienceReady = false;
 
   while (true) {
@@ -81,45 +99,65 @@ try {
         );
       }
 
-      const draft = await ai.extractExperience({
-        requestedType,
+      try {
+        const draft = await ai.extractExperience({
+          requestedType,
+          messages,
+        });
+
+        console.log("\n--- 経験カード案（本人確認前） ---");
+        console.log(JSON.stringify(draft, null, 2));
+        console.log(
+          "\nこの内容はDRAFTです。画面実装後は本人が修正・確認してから分析に使います。\n",
+        );
+      } catch (error) {
+        printRecoverableError(error, "経験カードの生成");
+      }
+      continue;
+    }
+
+    if (command === "/retry") {
+      if (messages.at(-1)?.role !== "USER") {
+        console.log(
+          "AI: 再試行できる未回答のユーザーメッセージがありません。\n",
+        );
+        continue;
+      }
+    } else {
+      if (answer.trim() === "") {
+        continue;
+      }
+
+      messages.push({
+        id: randomUUID(),
+        role: "USER",
+        content: answer,
+      });
+    }
+
+    let turn;
+
+    try {
+      turn = await ai.createChatTurn({
+        session: {
+          id: sessionId,
+          targetAxes,
+          coveredExperienceTypes: [],
+          missingAxes,
+        },
         messages,
       });
-
-      console.log("\n--- 経験カード案（本人確認前） ---");
-      console.log(JSON.stringify(draft, null, 2));
-      console.log(
-        "\nこの内容はDRAFTです。画面実装後は本人が修正・確認してから分析に使います。\n",
-      );
+    } catch (error) {
+      printRecoverableError(error, "チャット応答の生成");
       continue;
     }
-
-    if (answer.trim() === "") {
-      continue;
-    }
-
-    messages.push({
-      id: randomUUID(),
-      role: "USER",
-      content: answer,
-    });
-
-    const turn = await ai.createChatTurn({
-      session: {
-        id: sessionId,
-        focusAreas,
-        coveredExperienceTypes: [],
-        missingAreas,
-      },
-      messages,
-    });
 
     messages.push({
       id: randomUUID(),
       role: "ASSISTANT",
       content: turn.reply,
     });
-    missingAreas = turn.missingAreas;
+    missingAxes = turn.missingAxes;
     experienceReady = turn.experienceReady;
 
     console.log(`AI: ${turn.reply}`);

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Polaris Design"
+  short_description: "Polaris UI design rules for safe, consistent frontend changes"
+  default_prompt: "Use $polaris-design to design or update a Polaris UI while preserving established Home and Google login patterns."

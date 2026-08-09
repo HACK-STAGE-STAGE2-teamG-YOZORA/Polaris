@@ -3,7 +3,7 @@ import { LmStudioPolarisAiGateway } from "../src/infrastructure/ai/lm-studio-ai-
 import type {
   ConfirmedExperience,
   EsAnalysisInput,
-  EvidenceItem,
+  AxisEvidence,
 } from "../src/infrastructure/ai/types.ts";
 
 const ai = new LmStudioPolarisAiGateway();
@@ -69,11 +69,12 @@ try {
       "待ち時間を減らすため作業を3工程に分け、15分から6分に短縮しました。",
   });
 
-  const evidenceItems: EvidenceItem[] = [
+  const evidenceItems: AxisEvidence[] = [
     {
       id: randomUUID(),
       experienceId: firstExperience.id,
-      category: "CAN",
+      axis: "ACTION_STYLE",
+      pole: "RIGHT",
       statement: "作業を小さな単位へ分ける",
       supportType: "SUPPORT",
       quote: firstExperience.evidenceQuotes[0]!.quote,
@@ -82,7 +83,8 @@ try {
     {
       id: randomUUID(),
       experienceId: secondExperience.id,
-      category: "CAN",
+      axis: "ACTION_STYLE",
+      pole: "RIGHT",
       statement: "作業を工程単位へ分ける",
       supportType: "SUPPORT",
       quote: secondExperience.evidenceQuotes[0]!.quote,
@@ -91,7 +93,8 @@ try {
     {
       id: randomUUID(),
       experienceId: secondExperience.id,
-      category: "ENERGY",
+      axis: "SATISFACTION_SOURCE",
+      pole: "LEFT",
       statement: "改善結果が見える活動で元気になる",
       supportType: "SUPPORT",
       quote: secondExperience.evidenceQuotes[0]!.quote,
@@ -100,10 +103,12 @@ try {
   ];
 
   console.log("キャリア仮説を生成しています...");
-  const hypotheses = await ai.generateHypotheses({
+  const hypotheses = await ai.generateAxisAssessments({
+    sourceSessionId: randomUUID(),
+    userMessageCount: 2,
     confirmedExperiences: [firstExperience, secondExperience],
     evidenceItems,
-    previousHypotheses: [],
+    previousAssessments: [],
   });
   console.log("\n検証済みキャリア仮説:");
   console.log(JSON.stringify(hypotheses, null, 2));
@@ -115,7 +120,7 @@ try {
     characterLimit: 200,
     text:
       "私は10人チームのリーダーとしてWebアプリを開発し、売上を2倍にしました。この経験を生かし、若手に全面的な裁量がある御社で活躍します。",
-    allowedExperiences: [
+    allConfirmedExperiences: [
       {
         id: experienceId,
         confirmedFacts: [
@@ -135,7 +140,8 @@ try {
         trustLevel: "OFFICIAL",
       },
     ],
-    confirmedHypothesesForVoice: [],
+    allSessionReports: [],
+    preferredExperienceIds: [experienceId],
   };
 
   console.log("\nESを検査しています...");

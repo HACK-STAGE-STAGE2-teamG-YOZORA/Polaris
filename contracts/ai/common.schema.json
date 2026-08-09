@@ -3,9 +3,30 @@
   "$id": "https://polaris.local/schemas/ai/common.schema.json",
   "title": "Polaris AI common definitions",
   "$defs": {
-    "hypothesisCategory": {
+    "selfAnalysisAxis": {
       "type": "string",
-      "enum": ["CAN", "WANT", "ENERGY", "CONTEXT"]
+      "enum": [
+        "ENERGY_SOURCE",
+        "ACTION_STYLE",
+        "SATISFACTION_SOURCE",
+        "PREFERRED_ENVIRONMENT"
+      ]
+    },
+    "axisPole": {
+      "type": "string",
+      "enum": ["LEFT", "RIGHT", "BOTH", "CONTEXT_DEPENDENT", "UNKNOWN"]
+    },
+    "axisPosition": {
+      "type": "string",
+      "enum": [
+        "LEFT",
+        "LEANS_LEFT",
+        "BALANCED_OR_BOTH",
+        "LEANS_RIGHT",
+        "RIGHT",
+        "CONTEXT_DEPENDENT",
+        "INSUFFICIENT_EVIDENCE"
+      ]
     },
     "experienceType": {
       "type": "string",
@@ -100,4 +121,3 @@
     }
   }
 }
-

@@ -1,8 +1,24 @@
-export type HypothesisCategory =
-  | "CAN"
-  | "WANT"
-  | "ENERGY"
-  | "CONTEXT";
+export type SelfAnalysisAxis =
+  | "ENERGY_SOURCE"
+  | "ACTION_STYLE"
+  | "SATISFACTION_SOURCE"
+  | "PREFERRED_ENVIRONMENT";
+
+export type AxisPole =
+  | "LEFT"
+  | "RIGHT"
+  | "BOTH"
+  | "CONTEXT_DEPENDENT"
+  | "UNKNOWN";
+
+export type AxisPosition =
+  | "LEFT"
+  | "LEANS_LEFT"
+  | "BALANCED_OR_BOTH"
+  | "LEANS_RIGHT"
+  | "RIGHT"
+  | "CONTEXT_DEPENDENT"
+  | "INSUFFICIENT_EVIDENCE";
 
 export type ExperienceType =
   | "ENGAGED"
@@ -13,7 +29,7 @@ export type ExperienceType =
   | "OTHER";
 
 export type QuestionTarget =
-  | HypothesisCategory
+  | SelfAnalysisAxis
   | "EXPERIENCE_DETAIL"
   | "CONTRADICTION"
   | "CONFIRMATION";
@@ -29,16 +45,17 @@ export type ConversationMessage = {
 export type ChatTurnInput = {
   session: {
     id: string;
-    focusAreas: HypothesisCategory[];
+    targetAxes: SelfAnalysisAxis[];
     coveredExperienceTypes: ExperienceType[];
-    missingAreas: HypothesisCategory[];
+    missingAxes: SelfAnalysisAxis[];
   };
   messages: ConversationMessage[];
   activeExperienceDraft?: Record<string, unknown>;
 };
 
 export type EvidenceCandidate = {
-  category: HypothesisCategory;
+  axis: SelfAnalysisAxis;
+  pole: AxisPole;
   statement: string;
   supportType: EvidenceSupportType;
   messageId: string;
@@ -49,9 +66,10 @@ export type EvidenceCandidate = {
 export type ChatTurnOutput = {
   reply: string;
   evidenceCandidates: EvidenceCandidate[];
-  missingAreas: HypothesisCategory[];
+  missingAxes: SelfAnalysisAxis[];
   nextQuestionTarget: QuestionTarget;
   experienceReady: boolean;
+  completionIntent: "NONE" | "SUGGESTED";
 };
 
 export type ExperienceDraftInput = {
@@ -104,19 +122,21 @@ export type ConfirmedExperience = ExperienceDraftOutput & {
   status: "CONFIRMED";
 };
 
-export type EvidenceItem = {
+export type AxisEvidence = {
   id: string;
   experienceId: string;
-  category: HypothesisCategory;
+  axis: SelfAnalysisAxis;
+  pole: AxisPole;
   statement: string;
   supportType: EvidenceSupportType;
   quote: string;
   interpretation: string;
 };
 
-export type CareerHypothesisReference = {
+export type AxisAssessmentReference = {
   id: string;
-  category: HypothesisCategory;
+  axis: SelfAnalysisAxis;
+  position: AxisPosition;
   statement: string;
   userAssessment:
     | "UNREVIEWED"
@@ -126,23 +146,205 @@ export type CareerHypothesisReference = {
     | "NEEDS_EXPLORATION";
 };
 
-export type HypothesesInput = {
+export type AxisAssessmentsInput = {
+  sourceSessionId: string;
+  userMessageCount: number;
   confirmedExperiences: ConfirmedExperience[];
-  evidenceItems: EvidenceItem[];
-  previousHypotheses: CareerHypothesisReference[];
+  evidenceItems: AxisEvidence[];
+  previousAssessments: AxisAssessmentReference[];
 };
 
-export type HypothesesOutput = {
-  hypotheses: Array<{
-    category: HypothesisCategory;
+export type AxisAssessmentsOutput = {
+  assessments: Array<{
+    axis: SelfAnalysisAxis;
+    suggestedPosition: AxisPosition;
     statement: string;
-    supportingEvidenceIds: string[];
+    leftEvidenceIds: string[];
+    rightEvidenceIds: string[];
+    bothEvidenceIds: string[];
+    contextEvidenceIds: string[];
     counterEvidenceIds: string[];
-    enablingConditions: string[];
-    riskConditions: string[];
+    leftConditions: string[];
+    rightConditions: string[];
+    contextNotes: string[];
   }>;
-  missingAreas: HypothesisCategory[];
+  missingAxes: SelfAnalysisAxis[];
   contradictionsToExplore: string[];
+};
+
+export type SelfAnalysisReportInput = {
+  sourceSessionId: string;
+  userMessageCount: number;
+  axisAssessments: AxisAssessmentReference[];
+  confirmedExperiences: ConfirmedExperience[];
+};
+
+export type SelfAnalysisReportOutput = {
+  summary: string;
+  axisComments: Array<{
+    axis: SelfAnalysisAxis;
+    axisAssessmentId: string;
+    comment: string;
+  }>;
+  mustConditions: CareerConditionOutput[];
+  preferConditions: CareerConditionOutput[];
+  avoidConditions: CareerConditionOutput[];
+  verifyConditions: CareerConditionOutput[];
+  nextExperiments: string[];
+};
+
+export type CareerConditionOutput = {
+  statement: string;
+  axisAssessmentIds: string[];
+};
+
+export type OverallSelfAnalysisInput = {
+  completedSessionReports: Array<{
+    id: string;
+    summary: string;
+    axes: Array<{
+      axis: SelfAnalysisAxis;
+      position: AxisPosition;
+      statement: string;
+      evidenceIds: string[];
+      contextNotes: string[];
+      userAssessment: AxisAssessmentReference["userAssessment"];
+    }>;
+  }>;
+  confirmedExperiences: ConfirmedExperience[];
+  evidenceItems: AxisEvidence[];
+  sourceUserQuotes: Array<{ messageId: string; sessionId: string; quote: string }>;
+};
+
+export type OverallSelfAnalysisOutput = {
+  summary: string;
+  axisTrends: Array<{
+    axis: SelfAnalysisAxis;
+    suggestedPosition: AxisPosition;
+    statement: string;
+    sourceReportIds: string[];
+    evidenceIds: string[];
+    contextNotes: string[];
+  }>;
+  strengths: ProfileInsightOutput[];
+  weaknesses: ProfileInsightOutput[];
+};
+
+export type ProfileInsightOutput = {
+  title: string;
+  description: string;
+  axes: SelfAnalysisAxis[];
+  sourceReportIds: string[];
+  evidenceIds: string[];
+};
+
+export type CompanyFactsInput = {
+  company: { id: string; name: string; targetRole?: string };
+  source: {
+    title: string;
+    sourceUrl?: string;
+    trustLevel: 'OFFICIAL' | 'USER_PROVIDED_UNVERIFIED';
+    text: string;
+  };
+};
+
+export type CompanyFactsOutput = {
+  facts: Array<{ category: string; fact: string; evidenceQuote: string }>;
+  unknownItems: string[];
+};
+
+export type CompanyRecommendationsInput = {
+  selfAnalysisReport: {
+    id: string;
+    summary: string;
+    axisSnapshots: unknown;
+    mustConditions: unknown;
+    preferConditions: unknown;
+    avoidConditions: unknown;
+    verifyConditions: unknown;
+  };
+  confirmedExperiences: Array<{
+    id: string;
+    title: string;
+    type: string;
+    situation: string;
+    role: string;
+    actions: string[];
+    result: string | null;
+  }>;
+  targetRoles: string[];
+  preferredLocations: string[];
+  companies: Array<{
+    id: string;
+    name: string;
+    targetRole: string | null;
+    sources: Array<{
+      id: string;
+      url: string | null;
+      facts: Array<{ id: string; category: string; fact: string; evidenceQuote: string }>;
+    }>;
+  }>;
+};
+
+export type CompanyRecommendationsOutput = {
+  recommendations: Array<{
+    companyId: string;
+    slot: 'PRIMARY' | 'CHALLENGE' | 'UNEXPECTED';
+    recommendedRole: string | null;
+    rationale: string;
+    connectedExperienceIds: string[];
+    matchingConditions: string[];
+    concerns: string[];
+    unknowns: string[];
+    verificationQuestions: string[];
+    companySourceIds: string[];
+  }>;
+  excludedCompanies: Array<{ companyId: string; reason: string }>;
+};
+
+export type InterviewQuestionsInput = {
+  selfAnalysisReport: {
+    id: string;
+    summary: string;
+    mustConditions: unknown;
+    preferConditions: unknown;
+    avoidConditions: unknown;
+    verifyConditions: unknown;
+  };
+  confirmedExperiences: Array<{
+    id: string;
+    title: string;
+    situation: string;
+    role: string;
+    actions: string[];
+    result: string | null;
+  }>;
+  company: {
+    id: string;
+    name: string;
+    targetRole: string | null;
+    sources: Array<{
+      id: string;
+      facts: Array<{ id: string; category: string; fact: string; evidenceQuote: string }>;
+    }>;
+  } | null;
+  esDocument: { id: string; question: string; text: string } | null;
+  targetRole: string | null;
+  deepDiveCount: number;
+  reverseQuestionCount: number;
+};
+
+export type InterviewQuestionsOutput = {
+  deepDiveQuestions: Array<{
+    question: string;
+    purpose: string;
+    connectedExperienceIds: string[];
+  }>;
+  reverseQuestions: Array<{
+    question: string;
+    purpose: string;
+    companySourceIds: string[];
+  }>;
 };
 
 export type SourceEvidence = {
@@ -155,7 +357,7 @@ export type EsAnalysisInput = {
   question: string;
   characterLimit: number;
   text: string;
-  allowedExperiences: Array<{
+  allConfirmedExperiences: Array<{
     id: string;
     confirmedFacts: string[];
     sourceQuotes: string[];
@@ -167,7 +369,9 @@ export type EsAnalysisInput = {
     evidenceQuote: string;
     trustLevel: "OFFICIAL" | "USER_PROVIDED_UNVERIFIED";
   }>;
-  confirmedHypothesesForVoice: CareerHypothesisReference[];
+  allSessionReports: Array<Record<string, unknown>>;
+  overallSelfAnalysisProfile?: Record<string, unknown>;
+  preferredExperienceIds: string[];
 };
 
 export type EsAnalysisOutput = {
@@ -219,6 +423,8 @@ export type EsRevisionInput = EsAnalysisInput & {
 
 export type EsRevisionOutput = {
   revisedText: string;
+  usedExperienceIds: string[];
+  usedSessionReportIds: string[];
   changes: Array<{
     before: string;
     after: string;
@@ -235,5 +441,11 @@ export type PolarisAiConfig = {
   structuredTemperature: number;
   chatMaxTokens: number;
   taskMaxTokens: number;
+  chatTimeoutMs: number;
+  taskTimeoutMs: number;
+  esTimeoutMs: number;
   repairAttempts: number;
+  contextLength: number;
+  schemaReserveTokens: number;
+  estimatedCharsPerToken: number;
 };

@@ -1,15 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://polaris.local/schemas/ai/career-report-output.schema.json",
-  "title": "Career report language output",
+  "title": "Self-analysis report language output",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "summary",
-    "energizingActivities",
-    "drainingActivities",
-    "enablingContexts",
-    "riskContexts",
+    "axisComments",
     "mustConditions",
     "preferConditions",
     "avoidConditions",
@@ -20,10 +17,10 @@
     "condition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["statement", "hypothesisIds"],
+      "required": ["statement", "axisAssessmentIds"],
       "properties": {
         "statement": { "type": "string", "minLength": 1, "maxLength": 1000 },
-        "hypothesisIds": {
+        "axisAssessmentIds": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -34,21 +31,20 @@
   },
   "properties": {
     "summary": { "type": "string", "minLength": 1, "maxLength": 3000 },
-    "energizingActivities": {
+    "axisComments": {
       "type": "array",
-      "items": { "$ref": "#/$defs/condition" }
-    },
-    "drainingActivities": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/condition" }
-    },
-    "enablingContexts": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/condition" }
-    },
-    "riskContexts": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/condition" }
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["axis", "axisAssessmentId", "comment"],
+        "properties": {
+          "axis": { "$ref": "common.schema.json#/$defs/selfAnalysisAxis" },
+          "axisAssessmentId": { "type": "string", "format": "uuid" },
+          "comment": { "type": "string", "minLength": 1, "maxLength": 1500 }
+        }
+      }
     },
     "mustConditions": {
       "type": "array",
@@ -73,4 +69,3 @@
     }
   }
 }
-

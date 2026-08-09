@@ -13,6 +13,7 @@ src/generated/prisma/
 
 # Local data and uploaded content
 data/
+.tmp/
 *.db
 *.db-shm
 *.db-wal
@@ -27,3 +28,8 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+.claude/
+CLAUDE.md
+
+# Superdesign temporary context and generated scratch files
+.superdesign/tmp/
