@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { listAnalysisSessions } from "@/lib/api/analysis-sessions";
+import { listAnalysisSessions, SESSION_LIST_LIMIT } from "@/lib/api/analysis-sessions";
+import { CACHE_KEYS, readCache, writeCache } from "@/lib/api/cache";
 import { toDisplayError } from "@/lib/api/error-messages";
 import type { DisplayError } from "@/lib/api/error-messages";
 import { deleteExperience, listExperiences, updateExperience } from "@/lib/api/experiences";
-import type { AnalysisSession } from "@/types/analysis-session";
+import type { AnalysisSession, AnalysisSessionPage } from "@/types/analysis-session";
 import type {
+  ExperiencePage,
   ExperienceResponse,
   ExperienceStatus,
   UpdateExperienceRequest,
@@ -63,14 +65,32 @@ export function useExperiences() {
   const [state, setState] = useState<UseExperiencesState>(initialState);
 
   const load = useCallback(async (filter: ExperienceFilter) => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+    const cacheKey = CACHE_KEYS.experiences(filter);
+    const cachedExperiences = readCache<ExperiencePage>(cacheKey);
+    const cachedSessions = readCache<AnalysisSessionPage>(CACHE_KEYS.analysisSessions);
+    // タブを戻ってきた場合は取得済みデータで即描画し、そのうえで背面から取り直す
+    if (cachedExperiences && cachedSessions) {
+      setState((prev) => ({
+        ...prev,
+        items: cachedExperiences.items,
+        sessionsById: new Map(cachedSessions.items.map((session) => [session.id, session])),
+        loading: false,
+        error: null,
+      }));
+    } else {
+      setState((prev) => ({ ...prev, loading: true, error: null }));
+    }
+
     try {
       // セッションはグルーピング・履歴順ソートのタイトル・日時表示だけに使うため、
       // ステータスを絞らず全件（ABANDONED・COMPLETEDも含む）を取得する
       const [page, sessionPage] = await Promise.all([
         listExperiences(filter === "ALL" ? {} : { status: filter }),
-        listAnalysisSessions({ limit: 100 }),
+        listAnalysisSessions({ limit: SESSION_LIST_LIMIT }),
       ]);
+      writeCache(cacheKey, page);
+      // チャット画面と同じ条件の一覧なので、キーを共有して再取得を省く
+      writeCache(CACHE_KEYS.analysisSessions, sessionPage);
       setState((prev) => ({
         ...prev,
         items: page.items,
@@ -78,6 +98,7 @@ export function useExperiences() {
         loading: false,
       }));
     } catch (err) {
+      // キャッシュを表示できている場合は内容を残し、再取得の失敗だけを知らせる
       setState((prev) => ({
         ...prev,
         loading: false,

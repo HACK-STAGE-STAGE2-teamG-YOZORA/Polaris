@@ -10,12 +10,15 @@ import {
   listAnalysisSessions,
   recomputeOverallSelfAnalysis,
   sendAnalysisMessage,
+  SESSION_LIST_LIMIT,
 } from "@/lib/api/analysis-sessions";
 import { listAxisAssessments, reviewAxisAssessment } from "@/lib/api/axis-assessments";
+import { CACHE_KEYS, readCache, writeCache } from "@/lib/api/cache";
 import { ApiError } from "@/lib/api/errors";
 import { updateExperience } from "@/lib/api/experiences";
 import type {
   AnalysisSession,
+  AnalysisSessionPage,
   ChatMessage,
   CompletionIntent,
   EvidenceCandidate,
@@ -238,23 +241,39 @@ export function useAnalysisChat(initialAction?: InitialStartAction) {
         return;
       }
 
-      try {
-        // ステータス指定なし=全件取得。続きから可能なもの／結果閲覧のみのものに分ける
-        const { items } = await listAnalysisSessions({ limit: 100 });
-        if (cancelled) return;
+      // 一覧を画面へ反映する。背面での再取得では、すでに決まっているフォーム表示を切り替えない
+      let applied = false;
+      const applySessions = (items: AnalysisSession[]) => {
         const resumable = items.filter((item) => RESUMABLE_STATUSES.includes(item.status));
         // ABANDONEDはメッセージ送信もレポート閲覧もできない行き止まりなので一覧に出さない
         const other = items.filter((item) => item.status === "COMPLETED");
+        const firstApply = !applied;
+        applied = true;
         setState((prev) => ({
           ...prev,
           resumableSessions: resumable,
           otherSessions: other,
           loadingResumable: false,
           // 「初めから」で来た場合、または表示できるセッションが1件もない場合は選択を飛ばす
-          showNewSessionForm: initialAction?.type === "new" || items.length === 0,
+          showNewSessionForm: firstApply
+            ? initialAction?.type === "new" || items.length === 0
+            : prev.showNewSessionForm,
         }));
+      };
+
+      // タブを戻ってきた場合は取得済みデータで即描画し、そのうえで背面から取り直す
+      const cached = readCache<AnalysisSessionPage>(CACHE_KEYS.analysisSessions);
+      if (cached) applySessions(cached.items);
+
+      try {
+        // ステータス指定なし=全件取得。続きから可能なもの／結果閲覧のみのものに分ける
+        const page = await listAnalysisSessions({ limit: SESSION_LIST_LIMIT });
+        if (cancelled) return;
+        writeCache(CACHE_KEYS.analysisSessions, page);
+        applySessions(page.items);
       } catch (err) {
         if (!cancelled) {
+          // キャッシュを表示できている場合は内容を残し、再取得の失敗だけを知らせる
           setState((prev) => ({ ...prev, loadingResumable: false, error: toFormError(err) }));
         }
       }

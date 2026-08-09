@@ -1,7 +1,13 @@
 import { strict as assert } from 'node:assert';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { AuthConfigurationError, OAUTH_CALLBACK_PATH, readAuthConfig } from '../src/server/auth/config.ts';
+import {
+  AuthConfigurationError,
+  LAST_SEEN_UPDATE_INTERVAL_MS,
+  OAUTH_CALLBACK_PATH,
+  readAuthConfig,
+  shouldTouchLastSeenAt,
+} from '../src/server/auth/config.ts';
 import { createPkcePair, randomBase64Url, safeEqual, sha256Base64Url } from '../src/server/auth/crypto.ts';
 import { createGoogleAuthorizationUrl } from '../src/server/auth/google.ts';
 
@@ -66,6 +72,18 @@ try {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
+}
+
+// lastSeenAtは最終アクセスの記録用なので、毎リクエストではなく一定間隔でだけ更新する。
+// 有効期限判定はexpiresAtで行うため、間引いてもログイン状態には影響しない
+{
+  const now = new Date('2026-08-09T12:00:00.000Z');
+  const at = (offsetMs: number) => new Date(now.getTime() - offsetMs);
+  assert.equal(shouldTouchLastSeenAt(at(0), now), false);
+  assert.equal(shouldTouchLastSeenAt(at(1000), now), false);
+  assert.equal(shouldTouchLastSeenAt(at(LAST_SEEN_UPDATE_INTERVAL_MS - 1), now), false);
+  assert.equal(shouldTouchLastSeenAt(at(LAST_SEEN_UPDATE_INTERVAL_MS), now), true);
+  assert.equal(shouldTouchLastSeenAt(at(LAST_SEEN_UPDATE_INTERVAL_MS + 1), now), true);
 }
 
 console.log('Google auth security units: OK');

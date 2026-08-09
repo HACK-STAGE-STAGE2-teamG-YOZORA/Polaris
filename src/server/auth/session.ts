@@ -2,7 +2,12 @@ import type { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { iso } from '@/server/api';
 import { randomBase64Url, sha256Base64Url } from './crypto';
-import { SESSION_COOKIE_NAME, type AuthConfig } from './config';
+import {
+  LAST_SEEN_UPDATE_INTERVAL_MS,
+  SESSION_COOKIE_NAME,
+  shouldTouchLastSeenAt,
+  type AuthConfig,
+} from './config';
 
 export type AuthUserResponse = {
   id: string;
@@ -90,8 +95,22 @@ export async function readSession(request: NextRequest): Promise<{
     await prisma.authSession.delete({ where: { id: session.id } });
     return null;
   }
-  await prisma.authSession.update({ where: { id: session.id }, data: { lastSeenAt: now } });
+  await touchLastSeenAt(session.id, session.lastSeenAt, now);
   return { user: formatUser(session.user), expiresAt: iso(session.expiresAt) };
+}
+
+// 一定間隔でだけlastSeenAtを更新し、DBへの書き込み回数を抑える
+async function touchLastSeenAt(sessionId: string, lastSeenAt: Date, now: Date): Promise<void> {
+  if (!shouldTouchLastSeenAt(lastSeenAt, now)) return;
+  // 同時に届いた複数リクエストが揃って更新しないよう、where側にもlastSeenAtの条件を入れる。
+  // 条件を満たす行がなければ0件更新になるだけで、updateと違い例外にならない
+  await prisma.authSession.updateMany({
+    where: {
+      id: sessionId,
+      lastSeenAt: { lte: new Date(now.getTime() - LAST_SEEN_UPDATE_INTERVAL_MS) },
+    },
+    data: { lastSeenAt: now },
+  });
 }
 
 export async function deleteSession(request: NextRequest): Promise<void> {

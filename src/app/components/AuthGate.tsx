@@ -8,6 +8,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 
 import { BottomNav } from "@/app/components/BottomNav";
 import { TutorialProvider } from "@/app/components/tutorial/TutorialProvider";
+import { setCacheOwner } from "@/lib/api/cache";
 import { apiGet } from "@/lib/api/client";
 import { HOME_PATH, LOGIN_PATH, isPublicPath } from "@/shared/routes";
 import { CHAT_COLORS } from "@/shared/ui/chat-colors";
@@ -56,12 +57,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
     void apiGet<AuthSessionResponse>("/auth/session")
       .then((session) => {
         if (cancelled) return;
+        // タブ間キャッシュの持ち主を確定させる。別ユーザーならここで前のデータが消える。
+        // 子（各画面）はこのあとに描画されるため、キャッシュの取り違えは起きない
+        setCacheOwner(session.authenticated ? (session.user?.id ?? null) : null);
         setUser(session.user);
         setStatus(session.authenticated ? "authenticated" : "anonymous");
       })
       .catch(() => {
         // セッション確認自体に失敗した場合も、個人データを見せずログイン画面へ送る
-        if (!cancelled) setStatus("anonymous");
+        if (!cancelled) {
+          setCacheOwner(null);
+          setStatus("anonymous");
+        }
       });
 
     return () => { cancelled = true; };

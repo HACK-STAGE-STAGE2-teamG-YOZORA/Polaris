@@ -1,6 +1,9 @@
 // docs/openapi.yaml の /api/v1/es-documents, /api/v1/es-documents/{id}/analyses,
 // /api/v1/es-documents/{id}/revisions, /api/v1/es-revisions/{id}/verify,
-// /api/v1/es-text-extractions 系スキーマに対応する型定義。
+// /api/v1/es-text-extractions, /api/v1/es-revision-context 系スキーマに対応する型定義。
+
+import type { CompanyPage } from "@/types/company";
+import type { ExperiencePage } from "@/types/experience";
 
 export type EsDocumentStatus = "DRAFT" | "ANALYZED" | "REVISED" | "VERIFIED";
 
@@ -28,6 +31,17 @@ export interface EsDocument extends EsDocumentSummary {
   emphasis: string[];
   analyses: EsAnalysis[];
   revisions: EsRevision[];
+}
+
+// GET /api/v1/es-revision-context のレスポンス。
+// ESタブの初期表示に必要な一覧を、認証確認1回でまとめて受け取る
+export interface EsRevisionContext {
+  companies: CompanyPage;
+  // 根拠候補として使う確認済み経験だけが入る
+  experiences: ExperiencePage;
+  documents: EsDocumentPage;
+  // documentId未指定時はnull
+  selectedDocument: EsDocument | null;
 }
 
 // companyIdは任意。未指定時は本人経験だけを検査し、企業主張は確認済みにしない(docs/openapi.yaml参照)

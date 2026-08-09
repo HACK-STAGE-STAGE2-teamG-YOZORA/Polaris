@@ -13,7 +13,7 @@
 | 経験一覧 | `/experiences` | 確認済み／下書きの管理、そのセッションの自己分析結果への導線 | `GET /experiences`, `GET/PATCH/DELETE /experiences/{id}`, `GET /self-analysis-reports?sourceSessionId={id}` | P0 |
 | セッション4軸結果 | `/analysis-chat` | そのチャットの軸位置、コメント、左右・状況別根拠、本人評価 | `GET /axis-assessments`, `PATCH /axis-assessments/{id}`, `GET /self-analysis-reports/{id}` | P0 |
 | 企業情報 | 未作成 | 任意の企業、出典、抽出事実を確認 | `GET/POST /companies`, `POST /companies/{id}/sources/text` | P0任意 |
-| ES入力 | `/es-revision` | 文章貼り付け、PNG/JPEG画像、PDFから原文を入力し、抽出文を確認後に設問・文字数・任意の企業・経験と保存 | `POST /es-text-extractions`, `GET/POST /es-documents`, `GET/PATCH /es-documents/{id}` | P0 |
+| ES入力 | `/es-revision` | 文章貼り付け、PNG/JPEG画像、PDFから原文を入力し、抽出文を確認後に設問・文字数・任意の企業・経験と保存 | `GET /es-revision-context`, `POST /es-text-extractions`, `GET/POST /es-documents`, `GET/PATCH /es-documents/{id}` | P0 |
 | ES検査結果 | `/es-revision` | 主張の根拠状態、問題箇所、コメントを表示 | `POST /es-documents/{id}/analyses` | P0 |
 | ES完成版 | `/es-revision` | そのまま提出可能な品質を目標にしたES案と、その下の根拠状態・問題箇所・改善理由コメントを表示 | `POST /es-documents/{id}/revisions`, `POST /es-revisions/{id}/verify` | P0 |
 | Googleログイン | `/login` | Google認証、新規登録、ログイン状態確認 | `GET /auth/google/start`, `GET /auth/google/callback`, `GET /auth/session` | P1 |
@@ -32,6 +32,21 @@ API列では共通の`/api/v1`を省略している。画面パス列の「未�
 起動確認とGoogle認証開始・コールバックを除く画面APIはログイン必須である。`GET /auth/session`が未認証を返した場合、個人データ画面を描画せずGoogleログイン画面（`/login`）へ案内する。API呼び出しが401を返した場合も同じく`/login`へ戻す。認証に失敗したコールバックは`/login?authError={code}`へリダイレクトする。
 
 画面側で認証を要求しないパスは`/login`と`/system-status`だけとする。起動確認はDBやLM Studioが停止している状況を調べるための画面なので、`GET /auth/session`の結果を待たずに描画し、未ログインのままでも開けるようにする。
+
+`GET /auth/session`を呼ぶのはログイン画面と認証ゲート（`AuthGate`）だけとする。認証ゲートの内側の画面は、ゲートが配布したユーザー情報を使い、画面ごとに`GET /auth/session`を呼び直さない。各画面APIはこれまでどおり個別にDBセッションを検証する（`docs/architecture.md`、ADR-052）。
+
+初期表示で複数の一覧が必要な画面は集約APIを使い、認証確認とDBアクセスを1リクエストにまとめる。ホームは`GET /dashboard`、ES添削は`GET /es-revision-context`（企業一覧・確認済み経験一覧・ES一覧と、`documentId`指定時は文書詳細）を使う。集約APIが返す内容は個別APIと同じで、個別APIは他画面から引き続き利用する。
+
+### 1.1 タブ間キャッシュ
+
+下部ナビゲーションでタブを移動するたびに同じ一覧を取り直さないよう、取得済みの応答をブラウザのメモリへ保持する。対象はホームの`GET /dashboard`、チャットと経験一覧が共有する`GET /analysis-sessions`、経験一覧の`GET /experiences`、ES添削の`GET /es-revision-context`である。
+
+- 保存先はメモリだけで、`localStorage`などの永続領域には書かない。
+- ユーザーIDごとに分離し、ログアウト時と401受信時に全消去する。
+- `GET /auth/session`はキャッシュせず、ログイン状態は毎回サーバーへ確認する。
+- 作成・更新・削除の後は関連するキャッシュを無効化する。
+- キャッシュがある場合は先に描画し、続けて背面で再取得して差し替える。再取得が失敗した場合は表示中の内容を残し、エラー表示だけを追加する。
+- `STALE`・`CONFIRMED`などの業務状態はサーバー応答の値をそのまま表示する。キャッシュが新しいか古いかとは無関係なので、キャッシュ側で判定・変換しない。
 
 ## 2. ホーム表示状態
 

@@ -1,3 +1,4 @@
+import { clearCache } from "@/lib/api/cache";
 import { ApiError } from "@/lib/api/errors";
 import { LOGIN_PATH } from "@/shared/routes";
 import type { ErrorResponse } from "@/types/error";
@@ -47,8 +48,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     // セッション切れ（401）はどの画面から呼んでもログイン画面へ戻す。
     // 呼び出し側のcatchも動くよう、リダイレクトを開始したうえで例外は投げる
-    if (response.status === 401 && typeof window !== "undefined" && window.location.pathname !== LOGIN_PATH) {
-      window.location.assign(LOGIN_PATH);
+    if (response.status === 401) {
+      // 前のログイン中に取得したデータをタブ移動で再表示しないよう、キャッシュを捨てる
+      clearCache();
+      if (typeof window !== "undefined" && window.location.pathname !== LOGIN_PATH) {
+        window.location.assign(LOGIN_PATH);
+      }
     }
     throw new ApiError(response.status, await parseErrorResponse(response));
   }

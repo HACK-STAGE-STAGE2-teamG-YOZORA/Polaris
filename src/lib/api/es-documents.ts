@@ -1,3 +1,5 @@
+import { invalidateEsCaches } from "@/lib/api/cache";
+import { apiGet } from "@/lib/api/client";
 import { throwIfError } from "./errors";
 import type {
   CreateEsDocumentRequest,
@@ -6,6 +8,7 @@ import type {
   EsDocument,
   EsDocumentPage,
   EsRevision,
+  EsRevisionContext,
   EsTextExtraction,
   RevisionChange,
   RevisionDecision,
@@ -13,6 +16,13 @@ import type {
 } from "@/types/es-document";
 
 const BASE_URL = "/api/v1";
+
+// GET /api/v1/es-revision-context — ESタブ初期表示。
+// 企業・確認済み経験・ES一覧（documentId指定時は文書詳細も）を認証確認1回でまとめて取得する
+export function getEsRevisionContext(documentId?: string | null): Promise<EsRevisionContext> {
+  const query = documentId ? `?documentId=${encodeURIComponent(documentId)}` : "";
+  return apiGet<EsRevisionContext>(`/es-revision-context${query}`);
+}
 
 // GET /api/v1/es-documents — ESタブの保存済み一覧
 export async function listEsDocuments(): Promise<EsDocumentPage> {
@@ -36,6 +46,7 @@ export async function createEsDocument(request: CreateEsDocumentRequest): Promis
     body: JSON.stringify(request),
   });
   await throwIfError(res);
+  invalidateEsCaches();
   return (await res.json()) as EsDocument;
 }
 
@@ -51,6 +62,7 @@ export async function updateEsDocument(
     body: JSON.stringify(request),
   });
   await throwIfError(res);
+  invalidateEsCaches();
   return (await res.json()) as EsDocument;
 }
 
@@ -60,6 +72,7 @@ export async function analyzeEsDocument(esDocumentId: string): Promise<EsAnalysi
     method: "POST",
   });
   await throwIfError(res);
+  invalidateEsCaches();
   return (await res.json()) as EsAnalysis;
 }
 
@@ -88,6 +101,7 @@ export async function reviseEsDocument(
     body: request ? JSON.stringify(request) : undefined,
   });
   await throwIfError(res);
+  invalidateEsCaches();
   return (await res.json()) as EsRevision;
 }
 
@@ -97,6 +111,7 @@ export async function verifyEsRevision(revisionId: string): Promise<EsAnalysis> 
     method: "POST",
   });
   await throwIfError(res);
+  invalidateEsCaches();
   return (await res.json()) as EsAnalysis;
 }
 
@@ -112,5 +127,6 @@ export async function reviewEsRevisionChange(
     body: JSON.stringify({ decision }),
   });
   await throwIfError(res);
+  invalidateEsCaches();
   return (await res.json()) as RevisionChange;
 }
